@@ -775,8 +775,7 @@ async function downloadFormattedDocxReport(reportRows, options = {}) {
 
     fillFormattedDocxTemplate(xmlDoc, reportRows);
 
-    const serialized = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-' + new XMLSerializer().serializeToString(xmlDoc);
+    const serialized = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + new XMLSerializer().serializeToString(xmlDoc);
     zip.file('word/document.xml', serialized);
 
     const blob = await zip.generateAsync({

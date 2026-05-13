@@ -1717,13 +1717,9 @@ function calculateInternalFire(meta) {
     };
   }
 
-  const basis = floors >= 17
-    ? 'по этажности жилого дома'
-    : (longCorridor ? 'коридор более 10 м' : 'коридор до 10 м включительно');
-
   return {
     flow: formatFixedSmart(flow, 1),
-    description: `${streams} ${streams === 1 ? 'струя' : 'струи'} по 2,6 л/с; ${basis}`
+    description: `${streams} ${streams === 1 ? 'струя' : 'струи'} по 2,6 л/с`
   };
 }
 

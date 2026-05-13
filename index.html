@@ -14,8 +14,8 @@
     </div>
     <div class="topbar-actions">
       <button id="helpButton" type="button" class="ghost">Справка</button>
-      <button id="saveButton" type="button" class="ghost">Сохранить</button>
-      <button id="loadButton" type="button" class="ghost">Восстановить</button>
+      <button id="saveButton" type="button" class="ghost">Сохранить расчет</button>
+      <button id="loadButton" type="button" class="ghost">Загрузить сохраненный</button>
     </div>
   </header>
 
@@ -77,12 +77,20 @@
     <section class="card table-card">
       <div class="section-title">
         <h2>Водопотребители</h2>
-        <div class="compact-actions">
-          <button id="upButton" type="button" class="ghost" disabled>↑ Вверх</button>
-          <button id="downButton" type="button" class="ghost" disabled>↓ Вниз</button>
-          <button id="duplicateButton" type="button" class="ghost" disabled>Дублировать</button>
-          <button id="deleteButton" type="button" class="ghost danger" disabled>Удалить</button>
-          <button id="clearButton" type="button" class="ghost danger">Очистить</button>
+        <div class="compact-actions table-actions">
+          <span class="action-group">
+            <button id="upButton" type="button" class="ghost" disabled>↑ Вверх</button>
+            <button id="downButton" type="button" class="ghost" disabled>↓ Вниз</button>
+          </span>
+          <span class="action-separator" aria-hidden="true"></span>
+          <span class="action-group">
+            <button id="duplicateButton" type="button" class="ghost" disabled>Дублировать</button>
+          </span>
+          <span class="action-separator" aria-hidden="true"></span>
+          <span class="action-group">
+            <button id="deleteButton" type="button" class="ghost danger" disabled>Удалить</button>
+            <button id="clearButton" type="button" class="ghost danger">Очистить</button>
+          </span>
         </div>
       </div>
 
@@ -90,38 +98,43 @@
         <table id="rowsTable">
           <thead>
             <tr>
-              <th>Отчет</th>
+              <th class="include-column">В расчет</th>
               <th>№</th>
               <th>Наименование</th>
               <th>Параметр</th>
               <th>U / F</th>
               <th>T / n</th>
               <th>Ед.</th>
-              <th>q<sub>u,m</sub></th>
-              <th>q<sub>hr,u</sub></th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
+
+      <div id="selectedNormsPanel" class="selected-norms-panel" aria-live="polite"></div>
+      <div id="quickTotals" class="quick-totals" aria-live="polite"></div>
     </section>
 
     <section class="card summary-card">
-      <div class="section-title">
-        <h2>Свод расчетных данных</h2>
-        <div class="compact-actions">
-          <button id="printButton" type="button" class="secondary">Печать</button>
-          <button id="wordButton" type="button" class="secondary">Скачать Word</button>
-          <button id="copyButton" type="button" class="ghost">Копировать</button>
+      <details id="summaryDetails" class="summary-details" open>
+        <summary class="summary-summary">
+          <span class="summary-title-text">Свод расчетных данных</span>
+          <span class="compact-actions summary-actions">
+            <button id="printButton" type="button" class="secondary">Печать</button>
+            <button id="wordButton" type="button" class="secondary">Скачать Word</button>
+            <button id="copyButton" type="button" class="ghost">Копировать</button>
+          </span>
+        </summary>
+        <div class="summary-content">
+          <div class="mode-tabs" role="tablist" aria-label="Вид расчета">
+            <button class="mode-tab active" data-mode="all" type="button">Все</button>
+            <button class="mode-tab" data-mode="cold" type="button">Холодная</button>
+            <button class="mode-tab" data-mode="hot" type="button">Горячая</button>
+            <button class="mode-tab" data-mode="total" type="button">Общая</button>
+          </div>
+          <pre id="summaryOutput" class="summary-output"></pre>
         </div>
-      </div>
-      <div class="mode-tabs" role="tablist" aria-label="Вид расчета">
-        <button class="mode-tab active" data-mode="all" type="button">Все</button>
-        <button class="mode-tab" data-mode="cold" type="button">Холодная</button>
-        <button class="mode-tab" data-mode="hot" type="button">Горячая</button>
-        <button class="mode-tab" data-mode="total" type="button">Общая</button>
-      </div>
-      <pre id="summaryOutput" class="summary-output"></pre>
+      </details>
     </section>
   </main>
 
@@ -132,7 +145,7 @@
         <li>Выбери тип водопотребителя и параметр из СП 30, таблица А.2.</li>
         <li>Введи количество U или площадь F, затем нажми «Добавить».</li>
         <li>Выделяй строки в таблице, чтобы править, дублировать, удалять или перемещать их вверх/вниз.</li>
-        <li>Галочка «Отчет» включает строку в расчет и печатную таблицу.</li>
+        <li>Галочка «В расчет» включает строку в расчет и печатную таблицу.</li>
         <li>Для выдачи результата нажми «Печать» или «Скачать Word».</li>
       </ol>
       <button type="submit">Закрыть</button>

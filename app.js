@@ -55,7 +55,10 @@ function init() {
     copyButton: $('copyButton'),
     helpButton: $('helpButton'),
     helpDialog: $('helpDialog'),
+    summaryDetails: $('summaryDetails'),
     rowsTable: $('rowsTable'),
+    selectedNormsPanel: $('selectedNormsPanel'),
+    quickTotals: $('quickTotals'),
     summaryOutput: $('summaryOutput')
   });
 
@@ -92,6 +95,9 @@ function bindEvents() {
   on(els.printButton, 'click', printReport);
   on(els.wordButton, 'click', downloadWordReport);
   on(els.copyButton, 'click', copySummary);
+  const summaryActions = document.querySelector('.summary-actions');
+  on(summaryActions, 'click', event => event.stopPropagation());
+  on(summaryActions, 'keydown', event => event.stopPropagation());
   on(els.helpButton, 'click', () => {
     if (els.helpDialog && typeof els.helpDialog.showModal === 'function') els.helpDialog.showModal();
   });
@@ -310,6 +316,7 @@ function getSelectedRowIndex() {
 function renderAll() {
   renumberRows();
   renderRowsTable();
+  renderSelectedNormsPanel();
   updateButtonsState();
   updateSummary();
 }
@@ -323,19 +330,16 @@ function renderRowsTable() {
   tbody.innerHTML = '';
 
   rows.forEach(row => {
-    const totalNorm = getNorms(row.selectedOption || {}, WaterMode.TOTAL);
     const tr = document.createElement('tr');
     tr.classList.toggle('selected', row.id === selectedRowId);
     tr.innerHTML = `
-      <td class="center"><input type="checkbox" ${row.include ? 'checked' : ''} aria-label="Включить в отчет" /></td>
+      <td class="center"><input type="checkbox" ${row.include ? 'checked' : ''} aria-label="Включить строку в расчет" title="Включить строку в расчет и отчет" /></td>
       <td class="num">${row.number}</td>
       <td>${escapeHtml(row.consumerName)}<div class="small-muted">${escapeHtml(row.consumerTypeName || '')}</div></td>
       <td>${escapeHtml(row.parameterName || '')}</td>
       <td class="num">${escapeHtml(row.uCount || '')}</td>
       <td class="num">${escapeHtml(row.usageHours || '')}</td>
       <td>${escapeHtml(row.unit || '')}</td>
-      <td class="num">${format(totalNorm.dailyLiters)}</td>
-      <td class="num">${format(totalNorm.peakHourLiters)}</td>
     `;
     tr.addEventListener('click', event => {
       if (event.target instanceof HTMLInputElement && event.target.type === 'checkbox') return;
@@ -344,6 +348,7 @@ function renderRowsTable() {
     const checkbox = tr.querySelector('input[type="checkbox"]');
     checkbox.addEventListener('change', () => {
       row.include = checkbox.checked;
+      renderSelectedNormsPanel();
       updateSummary();
     });
     tbody.appendChild(tr);
@@ -384,6 +389,77 @@ function updateButtonsState() {
   if (els.downButton) els.downButton.disabled = !hasSelection || selectedIndex === rows.length - 1;
 }
 
+
+function renderSelectedNormsPanel() {
+  if (!els.selectedNormsPanel) return;
+  const row = getSelectedRow();
+  if (!row) {
+    els.selectedNormsPanel.classList.add('empty');
+    els.selectedNormsPanel.innerHTML = 'Выбери строку в таблице, чтобы посмотреть ее нормативы.';
+    return;
+  }
+
+  els.selectedNormsPanel.classList.remove('empty');
+  const modes = [
+    [WaterMode.COLD, 'Холодная'],
+    [WaterMode.HOT, 'Горячая'],
+    [WaterMode.TOTAL, 'Общая']
+  ];
+  const cards = modes.map(([mode, title]) => {
+    const norms = getNorms(row.selectedOption || {}, mode);
+    return `<div class="norm-card">
+      <h3>${title}</h3>
+      <div class="norm-line"><span>q<sub>u,m</sub>, л/сут</span><strong>${format(norms.dailyLiters)}</strong></div>
+      <div class="norm-line"><span>q<sub>hr,u</sub>, л/ч</span><strong>${format(norms.peakHourLiters)}</strong></div>
+      <div class="norm-line"><span>q<sub>0</sub>, л/с</span><strong>${format(norms.deviceLps)}</strong></div>
+      <div class="norm-line"><span>q<sub>0hr</sub>, л/ч</span><strong>${format(norms.deviceHourlyLiters)}</strong></div>
+    </div>`;
+  }).join('');
+
+  els.selectedNormsPanel.innerHTML = `<div class="panel-title">Нормативы выбранной строки: ${escapeHtml(row.consumerName || '-')}</div><div class="norms-grid">${cards}</div>`;
+}
+
+function updateQuickTotals(reportRows) {
+  if (!els.quickTotals) return;
+  if (!reportRows.length) {
+    els.quickTotals.classList.add('empty');
+    els.quickTotals.innerHTML = 'Быстрые итоги появятся после добавления строк и включения их в расчет.';
+    return;
+  }
+
+  els.quickTotals.classList.remove('empty');
+  const modes = [
+    [WaterMode.COLD, 'ХВ'],
+    [WaterMode.HOT, 'ГВ'],
+    [WaterMode.TOTAL, 'Общая']
+  ];
+  const cards = modes.map(([mode, title]) => {
+    const data = calculateQuickModeTotals(reportRows, mode);
+    return `<div class="quick-card">
+      <h3>${title}</h3>
+      <div class="quick-line"><span>Q<sub>сут</sub></span><strong>${format(data.totalQDay)} м³/сут</strong></div>
+      <div class="quick-line"><span>Q<sub>ср.ч</sub></span><strong>${format(data.totalQT)} м³/ч</strong></div>
+      <div class="quick-line"><span>q</span><strong>${format(data.q)} л/с</strong></div>
+      <div class="quick-line"><span>q<sub>hr</sub></span><strong>${format(data.qhr)} м³/ч</strong></div>
+    </div>`;
+  }).join('');
+
+  els.quickTotals.innerHTML = `<div class="quick-title">Быстрые итоги по отмеченным строкам</div><div class="quick-grid">${cards}</div><div class="quick-note">Полив и другие отдельные строки входят в Q<sub>сут</sub> и Q<sub>ср.ч</sub>, но не участвуют в NP / α / q / q<sub>hr</sub>.</div>`;
+}
+
+function calculateQuickModeTotals(reportRows, mode) {
+  const allLines = reportRows.map(row => createReportLine(row, mode));
+  const householdLines = allLines.filter(line => !line.isSpecial);
+  const specialLines = allLines.filter(line => line.isSpecial);
+  const householdTotals = calculateReportTotals(householdLines);
+  return {
+    totalQDay: householdTotals.totalQDay + sumBy(specialLines, line => line.qDay),
+    totalQT: householdTotals.totalQT + sumBy(specialLines, line => line.qT),
+    q: householdTotals.q,
+    qhr: householdTotals.qhr
+  };
+}
+
 function getRowsForReport() {
   return rows.filter(row => row.include);
 }
@@ -391,6 +467,7 @@ function getRowsForReport() {
 function updateSummary() {
   const reportRows = getRowsForReport();
   els.summaryOutput.textContent = buildSummaryText(reportRows, activeSummaryMode);
+  updateQuickTotals(reportRows);
 }
 
 function buildSummaryText(reportRows, modeFilter = 'all') {

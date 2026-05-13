@@ -20,6 +20,81 @@
   </header>
 
   <main class="layout">
+    <section class="card report-settings-card top-report-settings-card">
+      <details id="reportSettingsDetails" class="report-settings-details" open>
+        <summary class="report-settings-summary">
+          <span class="report-settings-title-text">Данные для оформленного отчета</span>
+        </summary>
+        <div class="report-settings-grid">
+          <label class="wide-field">
+            <span>Наименование объекта</span>
+            <input id="objectNameInput" type="text" autocomplete="off" placeholder="Например: Жилой дом, секция 1" />
+          </label>
+          <label>
+            <span>Расчет выполнен для, жителей</span>
+            <input id="residentsInput" type="number" step="1" min="0" readonly title="Подставляется автоматически: сумма U по отмеченным строкам с размерностью «1 житель»." />
+          </label>
+          <label>
+            <span>Этажность дома, этажей</span>
+            <input id="floorsInput" type="number" step="1" min="0" placeholder="Например 15" />
+          </label>
+          <label>
+            <span>Внутреннее пожаротушение по СП 10</span>
+            <select id="internalFireRuleSelect">
+              <option value="autoResidential">Жилой дом — авто по этажности</option>
+              <option value="oneStream">1 ПК-с</option>
+              <option value="twoStreams">2 ПК-с</option>
+              <option value="none">Не учитывать</option>
+            </select>
+          </label>
+          <div class="checkbox-field">
+            <span>Условие для жилого дома</span>
+            <label class="inline-check"><input id="longCorridorInput" type="checkbox" checked /> Коридор более 10 м</label>
+          </div>
+          <label>
+            <span>Внутреннее пожаротушение, л/с</span>
+            <input id="internalFireFlowInput" type="text" autocomplete="off" readonly />
+          </label>
+          <label>
+            <span>Принято для внутреннего пожаротушения</span>
+            <input id="internalFireDescriptionInput" type="text" autocomplete="off" readonly />
+          </label>
+          <label>
+            <span>Автоматическое пожаротушение, л/с</span>
+            <input id="autoFireFlowInput" type="text" autocomplete="off" readonly />
+          </label>
+          <label>
+            <span>Класс функциональной пожарной опасности</span>
+            <select id="outdoorFireClassSelect">
+              <option value="f13f14">Ф1.3, Ф1.4 — жилые дома</option>
+              <option value="f1f2f3f4">Ф1.1, Ф1.2, Ф2, Ф3, Ф4</option>
+            </select>
+          </label>
+          <label>
+            <span>Строительный объем, тыс. м³</span>
+            <input id="buildingVolumeInput" type="number" step="0.001" min="0" placeholder="Например 50" />
+          </label>
+          <label>
+            <span>Наружное пожаротушение, л/с</span>
+            <input id="outdoorFireFlowInput" type="text" autocomplete="off" readonly />
+          </label>
+          <label>
+            <span>Должность</span>
+            <input id="engineerPositionInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Дата подписи</span>
+            <input id="engineerDateInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>ФИО / подпись</span>
+            <input id="engineerNameInput" type="text" autocomplete="off" />
+          </label>
+        </div>
+      </details>
+    </section>
+
+
     <section class="card input-card">
       <div class="section-title">
         <h2>Добавить строку</h2>
@@ -115,56 +190,6 @@
       <div id="quickTotals" class="quick-totals" aria-live="polite"></div>
     </section>
 
-    <section class="card report-settings-card">
-      <details id="reportSettingsDetails" class="report-settings-details">
-        <summary class="report-settings-summary">
-          <span class="report-settings-title-text">Данные для оформленного отчета</span>
-        </summary>
-        <div class="report-settings-grid">
-          <label class="wide-field">
-            <span>Наименование объекта</span>
-            <input id="objectNameInput" type="text" autocomplete="off" placeholder="Например: Жилой дом, секция 1" />
-          </label>
-          <label>
-            <span>Расчет выполнен для, жителей</span>
-            <input id="residentsInput" type="number" step="1" min="0" />
-          </label>
-          <label>
-            <span>Этажность, этажей</span>
-            <input id="floorsInput" type="number" step="1" min="0" />
-          </label>
-          <label>
-            <span>Внутреннее пожаротушение, л/с</span>
-            <input id="internalFireFlowInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>Описание внутреннего пожаротушения</span>
-            <input id="internalFireDescriptionInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>Автоматическое пожаротушение, л/с</span>
-            <input id="autoFireFlowInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>Наружное пожаротушение, л/с</span>
-            <input id="outdoorFireFlowInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>Должность</span>
-            <input id="engineerPositionInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>Дата подписи</span>
-            <input id="engineerDateInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>ФИО / подпись</span>
-            <input id="engineerNameInput" type="text" autocomplete="off" />
-          </label>
-        </div>
-      </details>
-    </section>
-
     <section class="card summary-card">
       <details id="summaryDetails" class="summary-details" open>
         <summary class="summary-summary">
@@ -203,8 +228,8 @@
         <li>Введи количество U или площадь F, затем нажми «Добавить».</li>
         <li>Выделяй строки в таблице, чтобы править, дублировать, удалять или перемещать их вверх/вниз.</li>
         <li>Галочка «В расчет» включает строку в расчет и печатную таблицу.</li>
-        <li>Перед печатью или скачиванием выбери форму: «Черновой вариант» или «Оформленный отчет».</li>
-        <li>Для оформленного отчета заполни «Наименование объекта» и данные в конце отчета.</li>
+        <li>Перед печатью или скачиванием выбери форму: «Черновой вариант» — большая расчетная таблица, или «Оформленный отчет» — отчет с шапкой и текстом.</li>
+        <li>Для оформленного отчета заполни объект, этажность и параметры наружного пожаротушения в верхнем блоке.</li>
         <li>«Сохранить расчет» записывает строки и данные отчета под именем в браузере на этом компьютере.</li>
         <li>«Открыть расчет» показывает список сохраненных расчетов; оттуда можно загрузить или удалить нужный вариант.</li>
       </ol>

@@ -18,11 +18,15 @@ let selectedSavedCalculationId = null;
 
 const DEFAULT_REPORT_META = Object.freeze({
   objectName: 'Наименование',
-  residents: '947',
+  residents: '',
   floors: '15',
+  internalFireRule: 'autoResidential',
+  longCorridor: 'true',
   internalFireFlow: '5,2',
   internalFireDescription: '2 струи по 2,6 л/с',
   autoFireFlow: '30',
+  outdoorFireClass: 'f13f14',
+  buildingVolume: '',
   outdoorFireFlow: '30',
   engineerPosition: 'Инженер ВК',
   engineerDate: formatRuDate(new Date()),
@@ -82,9 +86,13 @@ function init() {
     objectNameInput: $('objectNameInput'),
     residentsInput: $('residentsInput'),
     floorsInput: $('floorsInput'),
+    internalFireRuleSelect: $('internalFireRuleSelect'),
+    longCorridorInput: $('longCorridorInput'),
     internalFireFlowInput: $('internalFireFlowInput'),
     internalFireDescriptionInput: $('internalFireDescriptionInput'),
     autoFireFlowInput: $('autoFireFlowInput'),
+    outdoorFireClassSelect: $('outdoorFireClassSelect'),
+    buildingVolumeInput: $('buildingVolumeInput'),
     outdoorFireFlowInput: $('outdoorFireFlowInput'),
     engineerPositionInput: $('engineerPositionInput'),
     engineerDateInput: $('engineerDateInput'),
@@ -137,9 +145,14 @@ function bindEvents() {
   on(summaryActions, 'click', event => event.stopPropagation());
   on(summaryActions, 'keydown', event => event.stopPropagation());
 
-  document.querySelectorAll('.report-settings-card input').forEach(input => {
-    input.addEventListener('input', () => saveReportMetaToStorage(false));
-    input.addEventListener('change', () => saveReportMetaToStorage(false));
+  document.querySelectorAll('.report-settings-card input, .report-settings-card select').forEach(input => {
+    const updateReportData = () => {
+      updateDerivedReportFields();
+      updateSummary();
+      saveReportMetaToStorage(false);
+    };
+    input.addEventListener('input', updateReportData);
+    input.addEventListener('change', updateReportData);
   });
   on(els.helpButton, 'click', () => {
     if (els.helpDialog && typeof els.helpDialog.showModal === 'function') els.helpDialog.showModal();
@@ -360,6 +373,7 @@ function renderAll() {
   renumberRows();
   renderRowsTable();
   renderSelectedNormsPanel();
+  updateDerivedReportFields();
   updateButtonsState();
   updateSummary();
 }
@@ -747,7 +761,7 @@ function buildDraftReportContent(reportRows, generatedAt) {
     <h1>Отчет по расчету водопотребления</h1>
     <p class="meta">Дата формирования: ${escapeHtml(generatedAt)}</p>
     <p class="meta">Нормативная база: СП 30.13330.2020, таблица А.2.</p>
-    ${buildMainReportTable(reportRows)}
+    ${buildDraftReportTable(reportRows)}
   `;
 }
 
@@ -762,7 +776,7 @@ function buildFormattedReportContent(reportRows, meta) {
       <p>тел./факс: +7(3952)500-171, e-mail: info@pk-effect.ru</p>
     </div>
     <h1 class="formatted-report-title">Предварительный расчет водопотребления и водоотведения.<br>Объект: «${escapeHtml(meta.objectName)}»</h1>
-    ${buildMainReportTable(reportRows)}
+    ${buildFormattedReportTable(reportRows)}
     ${buildReportFooter(meta)}
   `;
 }
@@ -774,6 +788,13 @@ function buildReportFooter(meta) {
   const internalDescription = safe(meta.internalFireDescription);
   const autoFlow = safe(meta.autoFireFlow);
   const outdoorFlow = safe(meta.outdoorFireFlow);
+  const internalText = internalFlow === '0' || internalFlow === '—'
+    ? 'Максимальный расход воды на внутреннее пожаротушение по выбранным параметрам не учитывается.'
+    : `Максимальный расход воды на внутреннее пожаротушение определен в соответствии с СП 10.13130.2020 и составляет не менее ${escapeHtml(internalFlow)} л/с (${escapeHtml(internalDescription)}).`;
+  const outdoorText = outdoorFlow === '—'
+    ? 'Максимальный расход воды на наружное пожаротушение по заданной этажности и строительному объему требует ручной проверки по СП 8.13130.2020.'
+    : `Максимальный расход воды на наружное пожаротушение определен в соответствии с СП 8.13130.2020 и составляет ${escapeHtml(outdoorFlow)} л/с.`;
+
   return `
     <div class="report-footer-text">
       <p>Расчёт выполнен в соответствии с СП 30.13330.2020.</p>
@@ -781,9 +802,9 @@ function buildReportFooter(meta) {
       <p class="formula-line">N<sub>кв.жит.</sub> = К+1</p>
       <p>где N<sub>кв.жит.</sub> – расчетное количество жителей в квартире; К – количество жилых комнат в квартире.</p>
       <p>Расчет выполнен для ${escapeHtml(residentsText)} жителей, этажность жилого дома – ${escapeHtml(floorsText)} этажей.</p>
-      <p>Максимальный расход воды на внутреннее пожаротушение определен в соответствии с СП 10.13130.2020 и составляет не менее ${escapeHtml(internalFlow)} л/с (${escapeHtml(internalDescription)}).</p>
+      <p>${internalText}</p>
       <p>Максимальный расход воды на автоматическое пожаротушение определен в соответствии с СП 485.1311500.2020 и составляет не менее ${escapeHtml(autoFlow)} л/с.</p>
-      <p>Максимальный расход воды на наружное пожаротушение определен в соответствии с СП 8.13130.2020 и составляет ${escapeHtml(outdoorFlow)} л/с.</p>
+      <p>${outdoorText}</p>
       <table class="signature-table"><tr>
         <td>${escapeHtml(meta.engineerPosition)}</td>
         <td>${escapeHtml(meta.engineerName)}</td>
@@ -825,23 +846,41 @@ function buildReportStyles() {
   `;
 }
 
-function buildMainReportTable(reportRows) {
+function buildDraftReportTable(reportRows) {
+  return buildReportTable([
+    [WaterMode.COLD, 'Расчет расходов холодной воды'],
+    [WaterMode.HOT, 'Расчет расходов горячей воды'],
+    [WaterMode.TOTAL, 'Расчет расходов воды общий']
+  ], reportRows, {
+    className: 'report-table draft-report-table',
+    colWidths: [18, 5, 6, 6, 6, 5, 7, 7, 6, 5.5, 5.5, 4.5, 4.5, 6.5, 7.5]
+  });
+}
+
+function buildFormattedReportTable(reportRows) {
   const firstTable = buildReportTable([
     [WaterMode.COLD, 'Расчет расходов холодной воды'],
     [WaterMode.HOT, 'Расчет расходов горячей воды']
-  ], reportRows);
+  ], reportRows, {
+    className: 'report-table formatted-report-table',
+    colWidths: [23.128, 5.628, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 5.205, 5.205, 5.139, 5.139, 8.214, 8.221]
+  });
   const secondTable = buildReportTable([
     [WaterMode.TOTAL, 'Расчет расходов воды общий']
-  ], reportRows);
+  ], reportRows, {
+    className: 'report-table formatted-report-table',
+    colWidths: [23.128, 5.628, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 5.205, 5.205, 5.139, 5.139, 8.214, 8.221]
+  });
   return `${firstTable}<div class="report-page-break"></div>${secondTable}`;
 }
 
-function buildReportTable(sectionsDefinition, reportRows) {
-  const colWidths = [23.128, 5.628, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 5.205, 5.205, 5.139, 5.139, 8.214, 8.221];
+function buildReportTable(sectionsDefinition, reportRows, options = {}) {
+  const colWidths = options.colWidths || [23.128, 5.628, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 5.205, 5.205, 5.139, 5.139, 8.214, 8.221];
+  const className = options.className || 'report-table';
   const colgroup = colWidths.map(width => `<col style="width:${width}%">`).join('');
   const sections = sectionsDefinition.map(([mode, title]) => buildReportSection(reportRows, mode, title)).join('');
 
-  return `<table class="report-table">
+  return `<table class="${className}">
     <colgroup>${colgroup}</colgroup>
     <thead>${buildReportTableHeader()}</thead>
     <tbody>${sections}</tbody>
@@ -1229,32 +1268,39 @@ function formatSavedDate(value) {
 }
 
 function getReportMeta() {
-  return normalizeReportMeta({
+  const raw = {
     objectName: els.objectNameInput?.value,
     residents: els.residentsInput?.value,
     floors: els.floorsInput?.value,
+    internalFireRule: els.internalFireRuleSelect?.value,
+    longCorridor: els.longCorridorInput?.checked ? 'true' : 'false',
     internalFireFlow: els.internalFireFlowInput?.value,
     internalFireDescription: els.internalFireDescriptionInput?.value,
     autoFireFlow: els.autoFireFlowInput?.value,
+    outdoorFireClass: els.outdoorFireClassSelect?.value,
+    buildingVolume: els.buildingVolumeInput?.value,
     outdoorFireFlow: els.outdoorFireFlowInput?.value,
     engineerPosition: els.engineerPositionInput?.value,
     engineerDate: els.engineerDateInput?.value,
     engineerName: els.engineerNameInput?.value
-  });
+  };
+  const meta = normalizeReportMeta(raw);
+  const derived = calculateDerivedReportMeta(meta);
+  return { ...meta, ...derived };
 }
 
 function setReportMetaInputs(meta) {
   const normalized = normalizeReportMeta(meta);
   if (els.objectNameInput) els.objectNameInput.value = normalized.objectName;
-  if (els.residentsInput) els.residentsInput.value = normalized.residents;
   if (els.floorsInput) els.floorsInput.value = normalized.floors;
-  if (els.internalFireFlowInput) els.internalFireFlowInput.value = normalized.internalFireFlow;
-  if (els.internalFireDescriptionInput) els.internalFireDescriptionInput.value = normalized.internalFireDescription;
-  if (els.autoFireFlowInput) els.autoFireFlowInput.value = normalized.autoFireFlow;
-  if (els.outdoorFireFlowInput) els.outdoorFireFlowInput.value = normalized.outdoorFireFlow;
+  if (els.internalFireRuleSelect) els.internalFireRuleSelect.value = normalized.internalFireRule;
+  if (els.longCorridorInput) els.longCorridorInput.checked = normalized.longCorridor !== 'false';
+  if (els.outdoorFireClassSelect) els.outdoorFireClassSelect.value = normalized.outdoorFireClass;
+  if (els.buildingVolumeInput) els.buildingVolumeInput.value = normalized.buildingVolume;
   if (els.engineerPositionInput) els.engineerPositionInput.value = normalized.engineerPosition;
   if (els.engineerDateInput) els.engineerDateInput.value = normalized.engineerDate;
   if (els.engineerNameInput) els.engineerNameInput.value = normalized.engineerName;
+  updateDerivedReportFields();
   saveReportMetaToStorage(false);
 }
 
@@ -1269,6 +1315,117 @@ function normalizeReportMeta(meta) {
   });
   return result;
 }
+
+function updateDerivedReportFields() {
+  const meta = normalizeReportMeta({
+    objectName: els.objectNameInput?.value,
+    floors: els.floorsInput?.value,
+    internalFireRule: els.internalFireRuleSelect?.value,
+    longCorridor: els.longCorridorInput?.checked ? 'true' : 'false',
+    outdoorFireClass: els.outdoorFireClassSelect?.value,
+    buildingVolume: els.buildingVolumeInput?.value,
+    engineerPosition: els.engineerPositionInput?.value,
+    engineerDate: els.engineerDateInput?.value,
+    engineerName: els.engineerNameInput?.value
+  });
+  const derived = calculateDerivedReportMeta(meta);
+  if (els.residentsInput) els.residentsInput.value = derived.residents;
+  if (els.internalFireFlowInput) els.internalFireFlowInput.value = derived.internalFireFlow;
+  if (els.internalFireDescriptionInput) els.internalFireDescriptionInput.value = derived.internalFireDescription;
+  if (els.autoFireFlowInput) els.autoFireFlowInput.value = derived.autoFireFlow;
+  if (els.outdoorFireFlowInput) els.outdoorFireFlowInput.value = derived.outdoorFireFlow;
+}
+
+function calculateDerivedReportMeta(meta) {
+  const internal = calculateInternalFire(meta);
+  return {
+    residents: String(calculateResidentsForReport()),
+    internalFireFlow: internal.flow,
+    internalFireDescription: internal.description,
+    autoFireFlow: '30',
+    outdoorFireFlow: calculateOutdoorFireFlow(meta)
+  };
+}
+
+function calculateResidentsForReport() {
+  return rows
+    .filter(row => row.include && isResidentRow(row))
+    .reduce((sum, row) => sum + getUCountValue(row), 0);
+}
+
+function isResidentRow(row) {
+  const unit = safe(row.unit).toLowerCase();
+  const typeName = safe(row.consumerTypeName).toLowerCase();
+  const name = safe(row.consumerName).toLowerCase();
+  return unit.includes('жител') || typeName.includes('жилые дома') || name.includes('секция');
+}
+
+function calculateInternalFire(meta) {
+  const rule = meta.internalFireRule || DEFAULT_REPORT_META.internalFireRule;
+  let streams = 0;
+
+  if (rule === 'oneStream') streams = 1;
+  else if (rule === 'twoStreams') streams = 2;
+  else if (rule === 'none') streams = 0;
+  else {
+    const floors = Math.floor(toNum(meta.floors));
+    const longCorridor = meta.longCorridor !== 'false';
+    if (floors >= 17) streams = 2;
+    else if (floors >= 12) streams = longCorridor ? 2 : 1;
+    else streams = 0;
+  }
+
+  const flow = streams * 2.6;
+  if (streams <= 0) return { flow: '0', description: 'не требуется по выбранным параметрам' };
+  return {
+    flow: formatFixedSmart(flow, 1),
+    description: `${streams} ${streams === 1 ? 'струя' : 'струи'} по 2,6 л/с`
+  };
+}
+
+function calculateOutdoorFireFlow(meta) {
+  const floors = Math.floor(toNum(meta.floors));
+  const volume = toNum(meta.buildingVolume);
+  if (floors <= 0 || volume <= 0) return DEFAULT_REPORT_META.outdoorFireFlow;
+
+  const volumeIndex = getOutdoorVolumeIndex(volume);
+  const rowsTable = meta.outdoorFireClass === 'f1f2f3f4'
+    ? OUTDOOR_FIRE_FLOW_TABLE.f1f2f3f4
+    : OUTDOOR_FIRE_FLOW_TABLE.f13f14;
+  const row = rowsTable.find(item => floors >= item.minFloors && floors <= item.maxFloors) || rowsTable[rowsTable.length - 1];
+  const value = row.values[volumeIndex];
+  return value === null || value === undefined ? '—' : String(value).replace('.', ',');
+}
+
+function getOutdoorVolumeIndex(volumeThousandM3) {
+  const value = toNum(volumeThousandM3);
+  if (value <= 1) return 0;
+  if (value <= 5) return 1;
+  if (value <= 25) return 2;
+  if (value <= 50) return 3;
+  if (value <= 150) return 4;
+  if (value <= 300) return 5;
+  if (value <= 800) return 6;
+  return 7;
+}
+
+const OUTDOOR_FIRE_FLOW_TABLE = Object.freeze({
+  f13f14: [
+    { minFloors: 0, maxFloors: 2, values: [10, 10, 15, 20, 25, 30, 35, 40] },
+    { minFloors: 3, maxFloors: 12, values: [10, 15, 15, 20, 25, 30, 35, 40] },
+    { minFloors: 13, maxFloors: 16, values: [null, 20, 20, 25, 30, 35, 40, 45] },
+    { minFloors: 17, maxFloors: 25, values: [null, null, 20, 25, 30, 35, 50, 60] },
+    { minFloors: 26, maxFloors: 999, values: [null, null, 60, 80, 90, 100, 100, 100] }
+  ],
+  f1f2f3f4: [
+    { minFloors: 0, maxFloors: 2, values: [10, 10, 15, 20, 30, 30, 35, 40] },
+    { minFloors: 3, maxFloors: 6, values: [10, 15, 20, 25, 30, 35, 40, 40] },
+    { minFloors: 7, maxFloors: 12, values: [15, 20, 25, 30, 35, 40, 40, 50] },
+    { minFloors: 13, maxFloors: 16, values: [null, null, 30, 30, 35, 50, 50, 60] },
+    { minFloors: 17, maxFloors: 25, values: [null, null, 30, 35, 40, 50, 50, 60] },
+    { minFloors: 26, maxFloors: 999, values: [null, null, 70, 90, 100, 100, 100, 100] }
+  ]
+});
 
 function saveReportMetaToStorage(showMessage) {
   try {
@@ -1291,6 +1448,11 @@ function loadReportMetaFromStorage(returnOnly = false) {
   if (returnOnly) return meta;
   setReportMetaInputs(meta);
   return meta;
+}
+
+function formatFixedSmart(value, decimals = 1) {
+  const number = roundTo(toNum(value), decimals);
+  return String(number).replace('.', ',');
 }
 
 function formatRuDate(date) {

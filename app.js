@@ -775,7 +775,12 @@ async function downloadFormattedDocxReport(reportRows, options = {}) {
 
     fillFormattedDocxTemplate(xmlDoc, reportRows);
 
-    const serialized = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + new XMLSerializer().serializeToString(xmlDoc);
+    // XMLSerializer may keep the original XML declaration from document.xml.
+    // Adding a second declaration makes Word reject the generated DOCX.
+    const serializedBody = new XMLSerializer()
+      .serializeToString(xmlDoc)
+      .replace(/<\?xml[^?]*\?>\s*/g, '');
+    const serialized = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + serializedBody;
     zip.file('word/document.xml', serialized);
 
     const blob = await zip.generateAsync({

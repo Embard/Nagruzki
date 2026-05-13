@@ -767,14 +767,7 @@ async function downloadFormattedDocxReport(reportRows, options = {}) {
     if (!documentFile) throw new Error('В шаблоне не найден word/document.xml');
 
     const xmlText = await documentFile.async('string');
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
-    const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
-    if (parserError) throw new Error(parserError.textContent || 'Ошибка чтения XML шаблона');
-
-    fillFormattedDocxTemplate(xmlDoc, reportRows);
-
-    const serialized = new XMLSerializer().serializeToString(xmlDoc);
+    const serialized = fillFormattedDocxTemplateXml(xmlText, reportRows);
     zip.file('word/document.xml', serialized);
 
     const blob = await zip.generateAsync({
@@ -809,6 +802,170 @@ function fillFormattedDocxTemplate(xmlDoc, reportRows) {
 
   replaceTextTokensInDocument(xmlDoc, values);
   fillFormattedDocxTables(xmlDoc, reportRows);
+}
+
+function fillFormattedDocxTemplateXml(xmlText, reportRows) {
+  const meta = getReportMeta();
+  let xml = xmlText;
+  const values = {
+    '{objectName}': safe(meta.objectName || 'Наименование'),
+    '{residents}': safe(meta.residents || calculateResidentsForReport()),
+    '{floors}': safe(meta.floors || ''),
+    '{internalFireFlow}': safe(meta.internalFireFlow || ''),
+    '{internalFireDescription}': safe(meta.internalFireDescription || ''),
+    '{autoFireFlow}': safe(meta.autoFireFlow || '30'),
+    '{outdoorFireFlow}': safe(meta.outdoorFireFlow || ''),
+    '{engineerPosition}': safe(meta.engineerPosition || ''),
+    '{engineerDate}': safe(meta.engineerDate || ''),
+    '{engineerName}': safe(meta.engineerName || '')
+  };
+
+  Object.entries(values).forEach(([token, value]) => {
+    xml = replaceAllLiteral(xml, token, escapeXmlText(value));
+  });
+
+  xml = replaceFormattedDocxTablesInXml(xml, reportRows);
+  return xml;
+}
+
+function replaceFormattedDocxTablesInXml(xml, reportRows) {
+  return xml.replace(/<w:tbl[\s\S]*?<\/w:tbl>/g, tableXml => {
+    if (tableXml.includes('Расчет расходов холодной воды')) {
+      return fillFormattedDocxReportTableXml(tableXml, reportRows, WaterMode.COLD);
+    }
+    if (tableXml.includes('Расчет расходов горячей воды')) {
+      return fillFormattedDocxReportTableXml(tableXml, reportRows, WaterMode.HOT);
+    }
+    if (tableXml.includes('Расчет расходов воды общий')) {
+      return fillFormattedDocxReportTableXml(tableXml, reportRows, WaterMode.TOTAL);
+    }
+    return tableXml;
+  });
+}
+
+function fillFormattedDocxReportTableXml(tableXml, reportRows, mode) {
+  const allLines = reportRows.map(row => createReportLine(row, mode));
+  const householdLines = allLines.filter(line => !line.isSpecial);
+  const specialLines = allLines.filter(line => line.isSpecial);
+  const householdTotals = calculateReportTotals(householdLines);
+  const specialQDay = sumBy(specialLines, line => line.qDay);
+  const specialQT = sumBy(specialLines, line => line.qT);
+
+  const householdRows = (householdLines.length ? householdLines : [createEmptyReportLine('Нет данных')])
+    .map(line => buildFormattedDocxDataRowXml(tableXml, '{Строка хозяйственно-питьевых нужд}', line, false))
+    .join('');
+  tableXml = replaceDocxRowsContaining(tableXml, '{Строка хозяйственно-питьевых нужд}', householdRows);
+
+  tableXml = transformDocxRowContaining(tableXml, 'q₀={q0}', rowXml => replaceDocxTokensInXml(rowXml, {
+    '{q0}': format(householdTotals.q0Eq),
+    '{q0,hr}': format(householdTotals.q0hrEq)
+  }));
+
+  tableXml = transformDocxRowContaining(tableXml, 'Итог - хозяйственно-питьевые нужды', rowXml => replaceDocxTokensInXml(rowXml, {
+    '{Qсут}': format(householdTotals.totalQDay),
+    '{qhr,u·U}': format(householdTotals.totalPeakLh),
+    '{qT}': format(householdTotals.totalQT),
+    '{NP}': format(householdTotals.totalNp),
+    '{NPhr}': format(householdTotals.totalNphr),
+    '{α}': format(householdTotals.alpha),
+    '{αhr}': format(householdTotals.alphaHr),
+    '{q}': format(householdTotals.q),
+    '{qhr}': format(householdTotals.qhr)
+  }));
+
+  const specialRows = specialLines
+    .map(line => buildFormattedDocxDataRowXml(tableXml, '{Поливка / спец. строка}', line, true))
+    .join('');
+  tableXml = replaceDocxRowsContaining(tableXml, '{Поливка / спец. строка}', specialRows);
+
+  tableXml = transformDocxFinalTotalRow(tableXml, rowXml => replaceDocxTokensInXml(rowXml, {
+    '{Qсут}': format(householdTotals.totalQDay + specialQDay),
+    '{qhr,u·U}': '-',
+    '{qT}': format(householdTotals.totalQT + specialQT),
+    '{NP}': '-',
+    '{NPhr}': '-',
+    '{α}': '-',
+    '{αhr}': '-',
+    '{q}': format(householdTotals.q),
+    '{qhr}': format(householdTotals.qhr)
+  }));
+
+  return tableXml;
+}
+
+function buildFormattedDocxDataRowXml(tableXml, token, line, specialMode) {
+  const templateRow = findDocxRowContaining(tableXml, token);
+  if (!templateRow) return '';
+  const dash = '-';
+  const specialValue = value => specialMode && Math.abs(toNum(value)) < 1e-7 ? dash : format(value);
+  return replaceDocxTokensInXml(templateRow, {
+    '{Строка хозяйственно-питьевых нужд}': safe(line.name),
+    '{Поливка / спец. строка}': safe(line.name),
+    '{U/F}': format(line.u),
+    '{q_u}': specialValue(line.qum),
+    '{q_hr,u}': specialValue(line.qhru),
+    '{q0,hr}': specialValue(line.q0hr),
+    '{q0}': specialValue(line.q0),
+    '{Qсут}': specialValue(line.qDay),
+    '{qhr,u·U}': specialValue(line.qPeakLh),
+    '{qT}': specialValue(line.qT),
+    '{NP}': specialMode ? dash : format(line.np),
+    '{NPhr}': specialMode ? dash : format(line.nphr),
+    '{α}': '',
+    '{αhr}': '',
+    '{q}': '',
+    '{qhr}': ''
+  });
+}
+
+function findDocxRowContaining(xml, marker) {
+  const rows = xml.match(/<w:tr[\s\S]*?<\/w:tr>/g) || [];
+  return rows.find(rowXml => rowXml.includes(marker)) || '';
+}
+
+function replaceDocxRowsContaining(xml, marker, replacementRowsXml) {
+  return xml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, rowXml => rowXml.includes(marker) ? replacementRowsXml : rowXml);
+}
+
+function transformDocxRowContaining(xml, marker, transform) {
+  let done = false;
+  return xml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, rowXml => {
+    if (!done && rowXml.includes(marker)) {
+      done = true;
+      return transform(rowXml);
+    }
+    return rowXml;
+  });
+}
+
+function transformDocxFinalTotalRow(xml, transform) {
+  let done = false;
+  return xml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, rowXml => {
+    if (!done && rowXml.includes('Итог:') && rowXml.includes('{Qсут}')) {
+      done = true;
+      return transform(rowXml);
+    }
+    return rowXml;
+  });
+}
+
+function replaceDocxTokensInXml(xml, tokenMap) {
+  let result = xml;
+  Object.entries(tokenMap).forEach(([token, value]) => {
+    result = replaceAllLiteral(result, token, escapeXmlText(value));
+  });
+  return result;
+}
+
+function replaceAllLiteral(text, search, replacement) {
+  return String(text).split(search).join(String(replacement));
+}
+
+function escapeXmlText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function replaceTextTokensInDocument(xmlDoc, tokenMap) {

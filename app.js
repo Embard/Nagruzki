@@ -745,40 +745,59 @@ function buildReportDocumentHtml(reportRows, forWord, variant = 'draft') {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit'
   });
-  const bodyClass = forWord ? 'WordSection1' : 'print-section';
   const meta = getReportMeta();
   const title = variant === 'formatted' ? 'Предварительный расчет водопотребления и водоотведения' : 'Отчет по расчету водопотребления';
+  const sectionClass = variant === 'formatted' ? 'FormattedSection' : 'DraftSection';
   const content = variant === 'formatted'
-    ? buildFormattedReportContent(reportRows, meta)
+    ? buildFormattedReportContent(reportRows, meta, forWord)
     : buildDraftReportContent(reportRows, generatedAt);
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
-  <style>${buildReportStyles()}</style>
-  </head><body><div class="${bodyClass}">${content}</div></body></html>`;
+
+  return `<!doctype html>
+<html lang="ru" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>${escapeHtml(title)}</title>
+<style>${buildReportStyles(variant)}</style>
+</head>
+<body class="report-body report-${escapeHtml(variant)}"><div class="${sectionClass}">${content}</div></body></html>`;
 }
+
 
 function buildDraftReportContent(reportRows, generatedAt) {
   return `
-    <h1>Отчет по расчету водопотребления</h1>
-    <p class="meta">Дата формирования: ${escapeHtml(generatedAt)}</p>
-    <p class="meta">Нормативная база: СП 30.13330.2020, таблица А.2.</p>
+    <h1 class="draft-report-title">Отчет по расчету водопотребления</h1>
+    <p class="draft-meta">Дата формирования: ${escapeHtml(generatedAt)}</p>
+    <p class="draft-meta">Нормативная база: СП 30.13330.2020, таблица А.2.</p>
     ${buildDraftReportTable(reportRows)}
   `;
 }
 
-function buildFormattedReportContent(reportRows, meta) {
+
+function buildFormattedReportContent(reportRows, meta, forWord = false) {
+  const company = buildCompanyHeaderBlock();
+  const wordHeader = forWord ? `<div class="word-only-header" id="h1">${company}</div>` : '';
+  const printHeader = forWord ? '' : `<div class="print-company-block">${company}</div>`;
   return `
-    <div class="company-block">
-      <p>Акционерное общество</p>
-      <p>проектная компания «Эффект»</p>
-      <p>ИНН 9701256261 КПП 770101001</p>
-      <p>101000, г. Москва, муниципальный округ Басманный,</p>
-      <p>б-р Чистопрудный, д.13, стр.1, помещ.1/1</p>
-      <p>тел./факс: +7(3952)500-171, e-mail: info@pk-effect.ru</p>
-    </div>
+    ${wordHeader}
+    ${printHeader}
     <h1 class="formatted-report-title">Предварительный расчет водопотребления и водоотведения.<br>Объект: «${escapeHtml(meta.objectName)}»</h1>
     ${buildFormattedReportTable(reportRows)}
     ${buildReportFooter(meta)}
   `;
+}
+
+
+
+function buildCompanyHeaderBlock() {
+  return `<div class="company-block">
+    <p>Акционерное общество</p>
+    <p>проектная компания «Эффект»</p>
+    <p>ИНН 9701256261 КПП 770101001</p>
+    <p>101000, г. Москва, муниципальный округ Басманный,</p>
+    <p>б-р Чистопрудный, д.13, стр.1, помещ.1/1</p>
+    <p>тел./факс: +7(3952)500-171, e-mail: info@pk-effect.ru</p>
+  </div>`;
 }
 
 function buildReportFooter(meta) {
@@ -816,35 +835,55 @@ function buildReportFooter(meta) {
   `;
 }
 
-function buildReportStyles() {
+function buildReportStyles(variant = 'draft') {
+  const isFormatted = variant === 'formatted';
+  const pageCss = isFormatted
+    ? `@page FormattedSection { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 2.5cm 1cm 0.75cm 1.5cm; mso-header: h1; }
+       @page { size: A4 landscape; margin: 25mm 10mm 7.5mm 15mm; }
+       div.FormattedSection { page: FormattedSection; }`
+    : `@page DraftSection { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 0.5cm 0.5cm 0.5cm 0.5cm; }
+       @page { size: A4 landscape; margin: 10mm; }
+       div.DraftSection { page: DraftSection; }`;
+
   return `
-  @page WordSection1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 2.5cm 1cm 0.75cm 1.5cm; }
-  @page { size: A4 landscape; margin: 25mm 10mm 7.5mm 15mm; }
-  div.WordSection1 { page: WordSection1; }
-  body { font-family: "Times New Roman", serif; font-size: 11pt; color: #111; background: white; }
-  h1 { font-size: 14pt; text-align: center; margin: 0 0 8pt; }
-  .meta { margin: 0 0 2pt; font-size: 11pt; }
-  .company-block { text-align: center; margin: 0 0 16pt; font-size: 11pt; line-height: 1.15; }
+  ${pageCss}
+  body { font-family: "Times New Roman", serif; color: #111; background: white; }
+  .DraftSection { font-size: 8pt; }
+  .FormattedSection { font-size: 11pt; }
+  .draft-report-title { font-size: 14pt; text-align: center; margin: 0 0 8pt; }
+  .draft-meta { margin: 0 0 4pt; font-size: 9pt; }
+  .company-block { text-align: center; margin: 0; font-size: 11pt; line-height: 1.15; }
   .company-block p { margin: 0 0 2pt; }
-  .formatted-report-title { margin: 0 0 10pt; font-size: 14pt; line-height: 1.15; }
+  .print-company-block { margin: 0 0 16pt; }
+  .word-only-header { mso-element: header; display: none; }
+  .formatted-report-title { margin: 0 0 10pt; font-size: 14pt; line-height: 1.15; text-align: center; }
   .report-footer-text { margin-top: 12pt; font-size: 11pt; line-height: 1.1; page-break-inside: avoid; }
   .report-footer-text p { margin: 0 0 2pt; }
   .formula-line { text-align: center; color: #b00000; font-style: italic; }
   .signature-table { border-collapse: collapse; margin-top: 16pt; width: 60%; table-layout: fixed; }
   .signature-table td { border: 0; padding: 0 18pt 0 0; font-size: 11pt; text-align: left; vertical-align: top; }
-  table.report-table { width: 10.5in; border-collapse: collapse; table-layout: fixed; margin: 0 auto; }
-  .report-table th, .report-table td { border: 1px solid #000; padding: 0.5pt 1.2pt; vertical-align: middle; line-height: 1.0; word-wrap: break-word; overflow-wrap: normal; }
-  .report-table th { font-weight: bold; text-align: center; background: white; }
+  table.report-table { border-collapse: collapse; table-layout: fixed; }
+  table.draft-report-table { width: 100%; }
+  table.formatted-report-table { width: 10.5in; margin: 0 auto; }
+  .report-table th, .report-table td { border: 1px solid #000; vertical-align: middle; word-wrap: break-word; overflow-wrap: anywhere; }
+  .draft-report-table th, .draft-report-table td { padding: 2.5pt 3pt; line-height: 1.12; }
+  .formatted-report-table th, .formatted-report-table td { padding: 0.5pt 1.2pt; line-height: 1.0; overflow-wrap: normal; }
+  .report-table th { font-weight: bold; text-align: center; }
+  .draft-report-table th { background: #d9d9d9; }
+  .formatted-report-table th { background: white; }
   .report-table td { text-align: center; }
   .report-table td.left { text-align: left; }
-  .report-table .section-row th { background: white; font-size: 11pt; padding: 0.5pt 1.2pt; }
+  .draft-report-table .section-row th { background: #d9d9d9; font-size: 9pt; padding: 4pt 3pt; }
+  .formatted-report-table .section-row th { background: white; font-size: 11pt; padding: 0.5pt 1.2pt; }
   .report-table .total-label { font-weight: bold; text-align: center; }
-  .report-table .number-row td { font-weight: bold; background: white; }
+  .draft-report-table .number-row td { font-weight: bold; background: #f2f2f2; }
+  .formatted-report-table .number-row td { font-weight: bold; background: white; }
   .report-page-break { page-break-before: always; height: 0; line-height: 0; }
   .nowrap { white-space: nowrap; }
-  @media print { body { margin: 0; } }
+  @media print { body { margin: 0; } .word-only-header { display: none !important; } }
   `;
 }
+
 
 function buildDraftReportTable(reportRows) {
   return buildReportTable([
@@ -856,6 +895,7 @@ function buildDraftReportTable(reportRows) {
     colWidths: [18, 5, 6, 6, 6, 5, 7, 7, 6, 5.5, 5.5, 4.5, 4.5, 6.5, 7.5]
   });
 }
+
 
 function buildFormattedReportTable(reportRows) {
   const firstTable = buildReportTable([
@@ -880,7 +920,7 @@ function buildReportTable(sectionsDefinition, reportRows, options = {}) {
   const colgroup = colWidths.map(width => `<col style="width:${width}%">`).join('');
   const sections = sectionsDefinition.map(([mode, title]) => buildReportSection(reportRows, mode, title)).join('');
 
-  return `<table class="${className}">
+  return `<table class="${className}" border="1" cellspacing="0" cellpadding="0">
     <colgroup>${colgroup}</colgroup>
     <thead>${buildReportTableHeader()}</thead>
     <tbody>${sections}</tbody>
@@ -1361,27 +1401,33 @@ function isResidentRow(row) {
 }
 
 function calculateInternalFire(meta) {
-  const rule = meta.internalFireRule || DEFAULT_REPORT_META.internalFireRule;
+  const floors = Math.floor(toNum(meta.floors));
+  const longCorridor = meta.longCorridor !== 'false';
   let streams = 0;
 
-  if (rule === 'oneStream') streams = 1;
-  else if (rule === 'twoStreams') streams = 2;
-  else if (rule === 'none') streams = 0;
-  else {
-    const floors = Math.floor(toNum(meta.floors));
-    const longCorridor = meta.longCorridor !== 'false';
-    if (floors >= 17) streams = 2;
-    else if (floors >= 12) streams = longCorridor ? 2 : 1;
-    else streams = 0;
-  }
+  if (floors >= 17 && floors <= 25) streams = 2;
+  else if (floors >= 12 && floors <= 16) streams = longCorridor ? 2 : 1;
+  else if (floors > 25) streams = 2;
+  else streams = 0;
 
   const flow = streams * 2.6;
-  if (streams <= 0) return { flow: '0', description: 'не требуется по выбранным параметрам' };
+  if (streams <= 0) {
+    return {
+      flow: '0',
+      description: 'для жилого дома по заданной этажности не требуется'
+    };
+  }
+
+  const basis = floors >= 17
+    ? 'по этажности жилого дома'
+    : (longCorridor ? 'коридор более 10 м' : 'коридор до 10 м включительно');
+
   return {
     flow: formatFixedSmart(flow, 1),
-    description: `${streams} ${streams === 1 ? 'струя' : 'струи'} по 2,6 л/с`
+    description: `${streams} ${streams === 1 ? 'струя' : 'струи'} по 2,6 л/с; ${basis}`
   };
 }
+
 
 function calculateOutdoorFireFlow(meta) {
   const floors = Math.floor(toNum(meta.floors));

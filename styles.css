@@ -158,3 +158,10 @@ dialog::backdrop { background: rgba(10, 20, 35, 0.38); }
   .layout, .summary-card { display: block; max-width: none; padding: 0; box-shadow: none; border: 0; }
   .summary-output { color: black; background: white; border: 0; max-height: none; font-size: 11pt; }
 }
+.help-list {
+  margin: 0 0 16px 20px;
+  padding: 0;
+  color: var(--text);
+  line-height: 1.45;
+}
+.help-list li { margin-bottom: 7px; }

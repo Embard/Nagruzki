@@ -39,6 +39,8 @@ function init() {
     addButton: $('addButton'),
     applyButton: $('applyButton'),
     resetFormButton: $('resetFormButton'),
+    upButton: $('upButton'),
+    downButton: $('downButton'),
     duplicateButton: $('duplicateButton'),
     deleteButton: $('deleteButton'),
     clearButton: $('clearButton'),
@@ -76,6 +78,8 @@ function bindEvents() {
   els.addButton.addEventListener('click', addRowFromForm);
   els.applyButton.addEventListener('click', applyFormToSelectedRow);
   els.resetFormButton.addEventListener('click', resetForm);
+  els.upButton.addEventListener('click', () => moveSelectedRow(-1));
+  els.downButton.addEventListener('click', () => moveSelectedRow(1));
   els.duplicateButton.addEventListener('click', duplicateSelectedRow);
   els.deleteButton.addEventListener('click', deleteSelectedRow);
   els.clearButton.addEventListener('click', clearRows);
@@ -227,6 +231,19 @@ function duplicateSelectedRow() {
   renderAll();
 }
 
+function moveSelectedRow(direction) {
+  const index = getSelectedRowIndex();
+  if (index < 0) return;
+
+  const targetIndex = index + direction;
+  if (targetIndex < 0 || targetIndex >= rows.length) return;
+
+  const current = rows[index];
+  rows[index] = rows[targetIndex];
+  rows[targetIndex] = current;
+  renderAll();
+}
+
 function deleteSelectedRow() {
   if (!selectedRowId) return;
   rows = rows.filter(row => row.id !== selectedRowId);
@@ -244,6 +261,10 @@ function clearRows() {
 
 function getSelectedRow() {
   return rows.find(row => row.id === selectedRowId) || null;
+}
+
+function getSelectedRowIndex() {
+  return rows.findIndex(row => row.id === selectedRowId);
 }
 
 function renderAll() {
@@ -314,10 +335,13 @@ function loadRowToForm(row) {
 }
 
 function updateButtonsState() {
-  const hasSelection = Boolean(getSelectedRow());
+  const selectedIndex = getSelectedRowIndex();
+  const hasSelection = selectedIndex >= 0;
   els.applyButton.disabled = !hasSelection;
   els.deleteButton.disabled = !hasSelection;
   els.duplicateButton.disabled = !hasSelection;
+  els.upButton.disabled = !hasSelection || selectedIndex === 0;
+  els.downButton.disabled = !hasSelection || selectedIndex === rows.length - 1;
 }
 
 function getRowsForReport() {
@@ -353,61 +377,45 @@ function appendModeSummary(lines, reportRows, mode) {
   lines.push(modeNames[mode]);
   lines.push('-'.repeat(45));
 
-  let totalDailyM3 = 0;
-  let totalPeakLiters = 0;
-  let totalAverageHourM3 = 0;
-  let sumNp = 0;
-  let sumNphr = 0;
+  const allLines = reportRows.map(row => createReportLine(row, mode));
+  const householdLines = allLines.filter(line => !line.isSpecial);
+  const specialLines = allLines.filter(line => line.isSpecial);
 
-  reportRows.forEach(row => {
-    const norms = getNorms(row.selectedOption, mode);
-    const u = getUCountValue(row);
-    const t = getUsageHoursValue(row);
-    const area = isAreaBasedRow(row);
-    const multiplier = area ? (t > 0 ? t : 1) : 1;
-
-    const dailyM3 = norms.dailyLiters * u * multiplier / 1000;
-    const peakLiters = norms.peakHourLiters * u;
-    const averageHourM3 = area ? dailyM3 : (t > 0 ? dailyM3 / t : 0);
-    const np = norms.deviceLps > 0 ? peakLiters / (norms.deviceLps * 3600) : 0;
-    const nphr = norms.deviceHourlyLiters > 0 ? peakLiters / norms.deviceHourlyLiters : 0;
-
-    totalDailyM3 += dailyM3;
-    totalPeakLiters += peakLiters;
-    totalAverageHourM3 += averageHourM3;
-    sumNp += np;
-    sumNphr += nphr;
-
-    lines.push(`${row.number}. ${safe(row.consumerName)}`);
-    lines.push(`   Параметр: ${safe(row.parameterName)}`);
-    lines.push(`   ${area ? 'Площадь' : 'U'} = ${safe(row.uCount)}; ${area ? 'Поливок/сутки' : 'T'} = ${safe(row.usageHours)}${area ? '' : ' ч'}`);
-    lines.push(`   q_u,m = ${format(norms.dailyLiters)} л/сут; q_hr,u = ${format(norms.peakHourLiters)} л/ч`);
-    lines.push(`   q0hr = ${format(norms.deviceHourlyLiters)} л/ч; q0 = ${format(norms.deviceLps)} л/с`);
-    lines.push(`   ${area ? 'q·F·n/1000' : 'q·U/1000'} = ${format(dailyM3)} м³/сут`);
-    lines.push(`   q_hr,u·U = ${format(peakLiters)} л/ч`);
-    lines.push(`   ${area ? 'q за сутки поливки' : 'qT'} = ${format(averageHourM3)} ${area ? 'м³/сут' : 'м³/ч'}`);
-    lines.push(`   NP = ${format(np)}; NPhr = ${format(nphr)}`);
+  allLines.forEach((line, index) => {
+    lines.push(`${index + 1}. ${safe(line.name)}${line.isSpecial ? ' — отдельная строка, не входит в NP/α/q' : ''}`);
+    lines.push(`   U/F = ${format(line.u)}`);
+    lines.push(`   q_u,m = ${format(line.qum)} л/сут; q_hr,u = ${format(line.qhru)} л/ч`);
+    lines.push(`   q0hr = ${format(line.q0hr)} л/ч; q0 = ${format(line.q0)} л/с`);
+    lines.push(`   Qсут = ${format(line.qDay)} м³/сут`);
+    lines.push(`   q_hr,u·U = ${format(line.qPeakLh)} л/ч`);
+    lines.push(`   qT = ${format(line.qT)} м³/ч`);
+    lines.push(`   NP = ${format(line.np)}; NPhr = ${format(line.nphr)}`);
     lines.push('');
   });
 
-  const q0eq = sumNp > 0 ? totalPeakLiters / (3600 * sumNp) : 0;
-  const q0hrEq = sumNphr > 0 ? totalPeakLiters / sumNphr : 0;
-  const alpha = lookupAlpha(sumNp);
-  const alphaHr = lookupAlpha(sumNphr);
-  const q = 5 * q0eq * alpha;
-  const qhr = 0.005 * q0hrEq * alphaHr;
+  const householdTotals = calculateReportTotals(householdLines);
+  const specialQDay = sumBy(specialLines, line => line.qDay);
+  const specialQT = sumBy(specialLines, line => line.qT);
 
-  lines.push('ИТОГО:');
-  lines.push(`Qсут = ${format(totalDailyM3)} м³/сут`);
-  lines.push(`Qч,пик = ${format(totalPeakLiters)} л/ч`);
-  lines.push(`Qч,ср = ${format(totalAverageHourM3)} м³/ч`);
-  lines.push(`ΣNP = ${format(sumNp)}`);
-  lines.push(`ΣNPhr = ${format(sumNphr)}`);
-  lines.push(`q0экв = ${format(q0eq)} л/с`);
-  lines.push(`q0hr,экв = ${format(q0hrEq)} л/ч`);
-  lines.push(`α = ${format(alpha)}; αhr = ${format(alphaHr)}`);
-  lines.push(`q = ${format(q)} л/с; qhr = ${format(qhr)} м³/ч`);
+  lines.push('ИТОГО - хозяйственно-питьевые нужды:');
+  lines.push(`Qсут = ${format(householdTotals.totalQDay)} м³/сут`);
+  lines.push(`Qч,пик = ${format(householdTotals.totalPeakLh)} л/ч`);
+  lines.push(`Qч,ср = ${format(householdTotals.totalQT)} м³/ч`);
+  lines.push(`ΣNP = ${format(householdTotals.totalNp)}`);
+  lines.push(`ΣNPhr = ${format(householdTotals.totalNphr)}`);
+  lines.push(`q0экв = ${format(householdTotals.q0Eq)} л/с`);
+  lines.push(`q0hr,экв = ${format(householdTotals.q0hrEq)} л/ч`);
+  lines.push(`α = ${format(householdTotals.alpha)}; αhr = ${format(householdTotals.alphaHr)}`);
+  lines.push(`q = ${format(householdTotals.q)} л/с; qhr = ${format(householdTotals.qhr)} м³/ч`);
   lines.push('');
+
+  if (specialLines.length) {
+    lines.push('ИТОГО с отдельными строками типа полива:');
+    lines.push(`Qсут = ${format(householdTotals.totalQDay + specialQDay)} м³/сут`);
+    lines.push(`Qч,ср = ${format(householdTotals.totalQT + specialQT)} м³/ч`);
+    lines.push(`q = ${format(householdTotals.q)} л/с; qhr = ${format(householdTotals.qhr)} м³/ч`);
+    lines.push('');
+  }
 }
 
 function getNorms(option, mode) {
@@ -597,95 +605,114 @@ function buildReportTableHeader() {
 }
 
 function buildReportSection(reportRows, mode, title) {
-  const lines = reportRows.map(row => createReportLine(row, mode));
+  const allLines = reportRows.map(row => createReportLine(row, mode));
+  const householdLines = allLines.filter(line => !line.isSpecial);
+  const specialLines = allLines.filter(line => line.isSpecial);
   const sectionRows = [];
   sectionRows.push(`<tr class="section-row"><th colspan="15">${escapeHtml(title)}</th></tr>`);
 
-  if (!lines.length) {
+  if (!allLines.length) {
     sectionRows.push(`<tr><td colspan="15" class="left">Нет данных</td></tr>`);
     return sectionRows.join('');
   }
 
-  lines.forEach(line => {
-    sectionRows.push(`<tr>
-      <td class="left">${escapeHtml(line.name)}</td>
-      <td>${format(line.u)}</td>
-      <td>${format(line.qum)}</td>
-      <td>${format(line.qhru)}</td>
-      <td>${format(line.q0hr)}</td>
-      <td>${format(line.q0)}</td>
-      <td>${format(line.qDay)}</td>
-      <td>${format(line.qPeakLh)}</td>
-      <td>${format(line.qT)}</td>
-      <td>${format(line.np)}</td>
-      <td>${format(line.nphr)}</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-    </tr>`);
-  });
+  householdLines.forEach(line => sectionRows.push(buildReportDataRow(line, false)));
 
-  const totals = calculateReportTotals(lines);
+  const householdTotals = calculateReportTotals(householdLines);
   sectionRows.push(`<tr>
     <td colspan="13" class="left"></td>
-    <td>q<sub>0</sub>=${format(totals.q0Eq)}</td>
-    <td>q<sub>0,hr</sub>=${format(totals.q0hrEq)}</td>
+    <td>q<sub>0</sub>=${format(householdTotals.q0Eq)}</td>
+    <td>q<sub>0,hr</sub>=${format(householdTotals.q0hrEq)}</td>
   </tr>`);
 
   sectionRows.push(`<tr>
     <td colspan="6" class="total-label">Итог - хозяйственно-питьевые нужды:</td>
-    <td>${format(totals.totalQDay)}</td>
-    <td>${format(totals.totalPeakLh)}</td>
-    <td>${format(totals.totalQT)}</td>
-    <td>${format(totals.totalNp)}</td>
-    <td>${format(totals.totalNphr)}</td>
-    <td>${format(totals.alpha)}</td>
-    <td>${format(totals.alphaHr)}</td>
-    <td>${format(totals.q)}</td>
-    <td>${format(totals.qhr)}</td>
+    <td>${format(householdTotals.totalQDay)}</td>
+    <td>${format(householdTotals.totalPeakLh)}</td>
+    <td>${format(householdTotals.totalQT)}</td>
+    <td>${format(householdTotals.totalNp)}</td>
+    <td>${format(householdTotals.totalNphr)}</td>
+    <td>${format(householdTotals.alpha)}</td>
+    <td>${format(householdTotals.alphaHr)}</td>
+    <td>${format(householdTotals.q)}</td>
+    <td>${format(householdTotals.qhr)}</td>
   </tr>`);
 
+  specialLines.forEach(line => sectionRows.push(buildReportDataRow(line, true)));
+
+  const specialQDay = sumBy(specialLines, line => line.qDay);
+  const specialQT = sumBy(specialLines, line => line.qT);
   sectionRows.push(`<tr>
     <td colspan="6" class="total-label">Итог:</td>
-    <td>${format(totals.totalQDay)}</td>
+    <td>${format(householdTotals.totalQDay + specialQDay)}</td>
     <td>-</td>
-    <td>${format(totals.totalQT)}</td>
-    <td>-</td>
-    <td>-</td>
+    <td>${format(householdTotals.totalQT + specialQT)}</td>
     <td>-</td>
     <td>-</td>
-    <td>${format(totals.q)}</td>
-    <td>${format(totals.qhr)}</td>
+    <td>-</td>
+    <td>-</td>
+    <td>${format(householdTotals.q)}</td>
+    <td>${format(householdTotals.qhr)}</td>
   </tr>`);
 
   return sectionRows.join('');
+}
+
+function buildReportDataRow(line, specialMode) {
+  const dash = '-';
+  const specialValue = value => specialMode && Math.abs(value) < 1e-7 ? dash : format(value);
+  const qhru = specialValue(line.qhru);
+  const q0hr = specialValue(line.q0hr);
+  const q0 = specialValue(line.q0);
+  const qPeak = specialValue(line.qPeakLh);
+  const np = specialMode ? dash : format(line.np);
+  const nphr = specialMode ? dash : format(line.nphr);
+
+  return `<tr>
+    <td class="left">${escapeHtml(line.name)}</td>
+    <td>${format(line.u)}</td>
+    <td>${specialValue(line.qum)}</td>
+    <td>${qhru}</td>
+    <td>${q0hr}</td>
+    <td>${q0}</td>
+    <td>${specialValue(line.qDay)}</td>
+    <td>${qPeak}</td>
+    <td>${specialValue(line.qT)}</td>
+    <td>${np}</td>
+    <td>${nphr}</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+  </tr>`;
 }
 
 function createReportLine(row, mode) {
   const norms = getNorms(row.selectedOption, mode);
   const u = getUCountValue(row);
   const t = getUsageHoursValue(row);
-  const area = isAreaBasedRow(row);
-  const multiplier = area ? (t > 0 ? t : 1) : 1;
-  const qDay = norms.dailyLiters * u * multiplier / 1000;
+  const special = isAreaBasedRow(row);
+  const qDay = norms.dailyLiters * u / 1000;
   const qPeakLh = norms.peakHourLiters * u;
-  const qT = area ? qDay : (t > 0 ? qDay / t : 0);
+  const qT = special
+    ? (mode === WaterMode.COLD && qDay > 0 ? qDay / 24 : 0)
+    : (t > 0 ? qDay / t : 0);
   const np = norms.deviceLps > 0 ? qPeakLh / (norms.deviceLps * 3600) : 0;
   const nphr = norms.deviceHourlyLiters > 0 ? qPeakLh / norms.deviceHourlyLiters : 0;
 
   return {
     name: row.consumerName || row.consumerTypeName || '-',
+    isSpecial: special,
     u,
     qum: norms.dailyLiters,
-    qhru: norms.peakHourLiters,
-    q0hr: norms.deviceHourlyLiters,
-    q0: norms.deviceLps,
+    qhru: special ? 0 : norms.peakHourLiters,
+    q0hr: special ? 0 : norms.deviceHourlyLiters,
+    q0: special ? 0 : norms.deviceLps,
     qDay,
-    qPeakLh,
+    qPeakLh: special ? 0 : qPeakLh,
     qT,
-    np,
-    nphr
+    np: special ? 0 : np,
+    nphr: special ? 0 : nphr
   };
 }
 

@@ -78,6 +78,8 @@
       <div class="section-title">
         <h2>Водопотребители</h2>
         <div class="compact-actions">
+          <button id="upButton" type="button" class="ghost" disabled>↑ Вверх</button>
+          <button id="downButton" type="button" class="ghost" disabled>↓ Вниз</button>
           <button id="duplicateButton" type="button" class="ghost" disabled>Дублировать</button>
           <button id="deleteButton" type="button" class="ghost danger" disabled>Удалить</button>
           <button id="clearButton" type="button" class="ghost danger">Очистить</button>
@@ -125,9 +127,14 @@
 
   <dialog id="helpDialog">
     <form method="dialog" class="dialog-card">
-      <h2>Как работает расчет</h2>
-      <p>Каталог нормативов перенесен из программы Nagruzki. Для каждой строки выбирается тип водопотребителя и параметр, задается количество U или площадь F. Для строк с площадью значение T трактуется как количество поливок в сутки.</p>
-      <p>Итоговые расходы считаются отдельно для холодной, горячей и общей воды: ΣNP, ΣNPhr, α, αhr, q и qhr.</p>
+      <h2>Как пользоваться расчетом</h2>
+      <ol class="help-list">
+        <li>Выбери тип водопотребителя и параметр из СП 30, таблица А.2.</li>
+        <li>Введи количество U или площадь F, затем нажми «Добавить».</li>
+        <li>Выделяй строки в таблице, чтобы править, дублировать, удалять или перемещать их вверх/вниз.</li>
+        <li>Галочка «Отчет» включает строку в расчет и печатную таблицу.</li>
+        <li>Для выдачи результата нажми «Печать» или «Скачать Word».</li>
+      </ol>
       <button type="submit">Закрыть</button>
     </form>
   </dialog>

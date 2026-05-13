@@ -536,16 +536,61 @@ function getUsageHoursValue(row) {
 function printReport() {
   const reportRows = getRowsForReport();
   const html = buildReportDocumentHtml(reportRows, false);
-  const win = window.open('', '_blank');
-  if (!win) {
-    alert('Браузер заблокировал окно печати. Разреши всплывающие окна для этого сайта.');
+
+  // Печать через временный iframe безопаснее, чем window.open/document.write:
+  // после закрытия окна печати основная страница не теряет обработчики кнопок.
+  document.querySelectorAll('iframe[data-print-frame="nagruzki"]').forEach(frame => frame.remove());
+
+  const frame = document.createElement('iframe');
+  frame.dataset.printFrame = 'nagruzki';
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.position = 'fixed';
+  frame.style.right = '0';
+  frame.style.bottom = '0';
+  frame.style.width = '0';
+  frame.style.height = '0';
+  frame.style.border = '0';
+  frame.style.opacity = '0';
+  frame.style.pointerEvents = 'none';
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    setTimeout(() => {
+      if (frame.parentNode) frame.parentNode.removeChild(frame);
+    }, 300);
+  };
+
+  document.body.appendChild(frame);
+
+  const printWindow = frame.contentWindow;
+  const printDocument = frame.contentDocument || printWindow?.document;
+  if (!printWindow || !printDocument) {
+    cleanup();
+    alert('Не удалось открыть область печати. Обнови страницу и попробуй еще раз.');
     return;
   }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 150);
+
+  printWindow.addEventListener('afterprint', cleanup);
+  printWindow.onafterprint = cleanup;
+
+  printDocument.open();
+  printDocument.write(html);
+  printDocument.close();
+
+  setTimeout(() => {
+    try {
+      printWindow.focus();
+      printWindow.print();
+      // Резервная очистка для браузеров, где afterprint не срабатывает при отмене печати.
+      setTimeout(cleanup, 15000);
+    } catch (error) {
+      cleanup();
+      console.error(error);
+      alert('Не удалось открыть печать. Попробуй скачать отчет Word.');
+    }
+  }, 150);
 }
 
 function downloadWordReport() {

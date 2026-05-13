@@ -485,8 +485,8 @@ function getUsageHoursValue(row) {
 }
 
 function printReport() {
-  const text = buildSummaryText(getRowsForReport(), 'all');
-  const html = buildReportHtml(text);
+  const reportRows = getRowsForReport();
+  const html = buildReportDocumentHtml(reportRows, false);
   const win = window.open('', '_blank');
   if (!win) {
     alert('Браузер заблокировал окно печати. Разреши всплывающие окна для этого сайта.');
@@ -500,27 +500,220 @@ function printReport() {
 }
 
 function downloadWordReport() {
-  const text = buildSummaryText(getRowsForReport(), 'all');
-  const html = buildWordHtml(text);
+  const reportRows = getRowsForReport();
+  const html = buildReportDocumentHtml(reportRows, true);
   const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
-  downloadBlob(blob, `Расчет_нагрузок_СП30_${timestamp()}.doc`);
+  downloadBlob(blob, `Расчет_водопотребления_${timestamp()}.doc`);
 }
 
-function buildReportHtml(text) {
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Расчет нагрузок</title>
-  <style>body{font-family:Arial,sans-serif;margin:22px;color:#111}pre{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;line-height:1.35}</style>
-  </head><body><h1>Расчет нагрузок по СП 30.13330.2020</h1><pre>${escapeHtml(text)}</pre></body></html>`;
+function buildReportDocumentHtml(reportRows, forWord) {
+  const generatedAt = new Date().toLocaleString('ru-RU', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  });
+  const bodyClass = forWord ? 'WordSection1' : 'print-section';
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Отчет по расчету водопотребления</title>
+  <style>${buildReportStyles()}</style>
+  </head><body><div class="${bodyClass}">
+    <h1>Отчет по расчету водопотребления</h1>
+    <p class="meta">Дата формирования: ${escapeHtml(generatedAt)}</p>
+    <p class="meta">Нормативная база: СП 30.13330.2020, таблица А.2.</p>
+    ${buildMainReportTable(reportRows)}
+  </div></body></html>`;
 }
 
-function buildWordHtml(text) {
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Расчет нагрузок</title>
-  <style>
-  @page WordSection1{size:841.9pt 595.3pt;mso-page-orientation:landscape;margin:0.5cm 0.5cm 0.5cm 0.5cm;}
-  div.WordSection1{page:WordSection1;}
-  body{font-family:"Times New Roman",serif;font-size:10pt;color:#111;}
-  pre{font-family:"Times New Roman",serif;font-size:10pt;white-space:pre-wrap;line-height:1.25;}
-  h1{font-size:14pt;text-align:center;}
-  </style></head><body><div class="WordSection1"><h1>Расчет нагрузок по СП 30.13330.2020</h1><pre>${escapeHtml(text)}</pre></div></body></html>`;
+function buildReportStyles() {
+  return `
+  @page WordSection1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 0.5cm 0.5cm 0.5cm 0.5cm; }
+  @page { size: A4 landscape; margin: 10mm; }
+  div.WordSection1 { page: WordSection1; }
+  body { font-family: "Times New Roman", serif; font-size: 8pt; color: #111; background: white; }
+  h1 { font-size: 14pt; text-align: center; margin: 0 0 8pt; }
+  .meta { margin: 0 0 4pt; font-size: 9pt; }
+  table.report-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .report-table th, .report-table td { border: 1px solid #000; padding: 2.5pt 3pt; vertical-align: middle; line-height: 1.12; word-wrap: break-word; overflow-wrap: anywhere; }
+  .report-table th { font-weight: bold; text-align: center; background: #d9d9d9; }
+  .report-table td { text-align: center; }
+  .report-table td.left { text-align: left; }
+  .report-table .section-row th { background: #d9d9d9; font-size: 9pt; padding: 4pt 3pt; }
+  .report-table .total-label { font-weight: bold; text-align: center; }
+  .report-table .number-row td { font-weight: bold; background: #f2f2f2; }
+  .nowrap { white-space: nowrap; }
+  @media print { body { margin: 0; } }
+  `;
+}
+
+function buildMainReportTable(reportRows) {
+  const colWidths = [18, 5, 6, 6, 6, 5, 7, 7, 6, 5.5, 5.5, 4.5, 4.5, 6.5, 7.5];
+  const colgroup = colWidths.map(width => `<col style="width:${width}%">`).join('');
+  const sections = [
+    [WaterMode.COLD, 'Расчет расходов холодной воды'],
+    [WaterMode.HOT, 'Расчет расходов горячей воды'],
+    [WaterMode.TOTAL, 'Расчет расходов воды общий']
+  ].map(([mode, title]) => buildReportSection(reportRows, mode, title)).join('');
+
+  return `<table class="report-table">
+    <colgroup>${colgroup}</colgroup>
+    <thead>${buildReportTableHeader()}</thead>
+    <tbody>${sections}</tbody>
+  </table>`;
+}
+
+function buildReportTableHeader() {
+  const nums = Array.from({ length: 15 }, (_, index) => `<td>${index + 1}</td>`).join('');
+  return `
+    <tr>
+      <th rowspan="3">Наименование<br>водопотребителей</th>
+      <th rowspan="3">коли-<br>чество<br>U</th>
+      <th colspan="2">нормы рас-<br>хода воды</th>
+      <th colspan="2">расход воды<br>прибором</th>
+      <th colspan="3">расход воды<br>водопотребителями</th>
+      <th rowspan="3">NP<br>q<sub>hr,u</sub> · U<br>q<sub>0</sub> · 3600</th>
+      <th rowspan="3">NPhr<br>q<sub>hr,u</sub> · U<br>q<sub>0,hr</sub></th>
+      <th rowspan="3">α</th>
+      <th rowspan="3">αhr</th>
+      <th rowspan="3">макси-<br>мальный<br>расчетный<br>расход<br>5 · q<sub>0</sub> · α<br>q<sub>c</sub>, q<sub>h</sub><br>л/с</th>
+      <th rowspan="3">макси-<br>мальный<br>часовой<br>расход<br>0.005 · q<sub>0,hr</sub> · αhr<br>q<sub>chr</sub>, q<sub>hhr</sub><br>м³/ч</th>
+    </tr>
+    <tr>
+      <th>сутки</th>
+      <th>час</th>
+      <th>час</th>
+      <th>сек</th>
+      <th>сутки</th>
+      <th>час</th>
+      <th>ср.час</th>
+    </tr>
+    <tr>
+      <th>qᶜ<sub>u</sub><br>qʰ<sub>u</sub><br>л/сут</th>
+      <th>qᶜ<sub>hr,u</sub><br>qʰ<sub>hr,u</sub><br>л/ч</th>
+      <th>qᶜ<sub>0,hr</sub><br>qʰ<sub>0,hr</sub><br>л/ч</th>
+      <th>qᶜ<sub>0</sub><br>qʰ<sub>0</sub><br>л/с</th>
+      <th>q · U<br>1000<br>м³/сут</th>
+      <th>q<sub>hr,u</sub> · U<br>л/ч</th>
+      <th>q<sub>T</sub><br>м³/ч</th>
+    </tr>
+    <tr class="number-row">${nums}</tr>`;
+}
+
+function buildReportSection(reportRows, mode, title) {
+  const lines = reportRows.map(row => createReportLine(row, mode));
+  const sectionRows = [];
+  sectionRows.push(`<tr class="section-row"><th colspan="15">${escapeHtml(title)}</th></tr>`);
+
+  if (!lines.length) {
+    sectionRows.push(`<tr><td colspan="15" class="left">Нет данных</td></tr>`);
+    return sectionRows.join('');
+  }
+
+  lines.forEach(line => {
+    sectionRows.push(`<tr>
+      <td class="left">${escapeHtml(line.name)}</td>
+      <td>${format(line.u)}</td>
+      <td>${format(line.qum)}</td>
+      <td>${format(line.qhru)}</td>
+      <td>${format(line.q0hr)}</td>
+      <td>${format(line.q0)}</td>
+      <td>${format(line.qDay)}</td>
+      <td>${format(line.qPeakLh)}</td>
+      <td>${format(line.qT)}</td>
+      <td>${format(line.np)}</td>
+      <td>${format(line.nphr)}</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>`);
+  });
+
+  const totals = calculateReportTotals(lines);
+  sectionRows.push(`<tr>
+    <td colspan="13" class="left"></td>
+    <td>q<sub>0</sub>=${format(totals.q0Eq)}</td>
+    <td>q<sub>0,hr</sub>=${format(totals.q0hrEq)}</td>
+  </tr>`);
+
+  sectionRows.push(`<tr>
+    <td colspan="6" class="total-label">Итог - хозяйственно-питьевые нужды:</td>
+    <td>${format(totals.totalQDay)}</td>
+    <td>${format(totals.totalPeakLh)}</td>
+    <td>${format(totals.totalQT)}</td>
+    <td>${format(totals.totalNp)}</td>
+    <td>${format(totals.totalNphr)}</td>
+    <td>${format(totals.alpha)}</td>
+    <td>${format(totals.alphaHr)}</td>
+    <td>${format(totals.q)}</td>
+    <td>${format(totals.qhr)}</td>
+  </tr>`);
+
+  sectionRows.push(`<tr>
+    <td colspan="6" class="total-label">Итог:</td>
+    <td>${format(totals.totalQDay)}</td>
+    <td>-</td>
+    <td>${format(totals.totalQT)}</td>
+    <td>-</td>
+    <td>-</td>
+    <td>-</td>
+    <td>-</td>
+    <td>${format(totals.q)}</td>
+    <td>${format(totals.qhr)}</td>
+  </tr>`);
+
+  return sectionRows.join('');
+}
+
+function createReportLine(row, mode) {
+  const norms = getNorms(row.selectedOption, mode);
+  const u = getUCountValue(row);
+  const t = getUsageHoursValue(row);
+  const area = isAreaBasedRow(row);
+  const multiplier = area ? (t > 0 ? t : 1) : 1;
+  const qDay = norms.dailyLiters * u * multiplier / 1000;
+  const qPeakLh = norms.peakHourLiters * u;
+  const qT = area ? qDay : (t > 0 ? qDay / t : 0);
+  const np = norms.deviceLps > 0 ? qPeakLh / (norms.deviceLps * 3600) : 0;
+  const nphr = norms.deviceHourlyLiters > 0 ? qPeakLh / norms.deviceHourlyLiters : 0;
+
+  return {
+    name: row.consumerName || row.consumerTypeName || '-',
+    u,
+    qum: norms.dailyLiters,
+    qhru: norms.peakHourLiters,
+    q0hr: norms.deviceHourlyLiters,
+    q0: norms.deviceLps,
+    qDay,
+    qPeakLh,
+    qT,
+    np,
+    nphr
+  };
+}
+
+function calculateReportTotals(lines) {
+  const totalQDay = sumBy(lines, line => line.qDay);
+  const totalPeakLh = sumBy(lines, line => line.qPeakLh);
+  const totalQT = sumBy(lines, line => line.qT);
+  const totalNp = sumBy(lines, line => line.np);
+  const totalNphr = sumBy(lines, line => line.nphr);
+  const q0EqRaw = totalNp > 0 ? totalPeakLh / (3600 * totalNp) : 0;
+  const q0hrEqRaw = totalNphr > 0 ? totalPeakLh / totalNphr : 0;
+  const q0Eq = roundTo(q0EqRaw, 2);
+  const q0hrEq = roundTo(q0hrEqRaw, 2);
+  const alpha = lookupAlpha(totalNp);
+  const alphaHr = lookupAlpha(totalNphr);
+  const q = 5 * q0Eq * alpha;
+  const qhr = 0.005 * q0hrEq * alphaHr;
+
+  return { totalQDay, totalPeakLh, totalQT, totalNp, totalNphr, q0Eq, q0hrEq, alpha, alphaHr, q, qhr };
+}
+
+function sumBy(items, selector) {
+  return items.reduce((sum, item) => sum + toNum(selector(item)), 0);
+}
+
+function roundTo(value, decimals) {
+  const factor = 10 ** decimals;
+  return Math.round((toNum(value) + Number.EPSILON) * factor) / factor;
 }
 
 async function copySummary() {

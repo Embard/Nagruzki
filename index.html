@@ -14,8 +14,8 @@
     </div>
     <div class="topbar-actions">
       <button id="helpButton" type="button" class="ghost">Справка</button>
-      <button id="saveButton" type="button" class="ghost">Сохранить расчет</button>
-      <button id="loadButton" type="button" class="ghost">Загрузить сохраненный</button>
+      <button id="saveButton" type="button" class="ghost" title="Сохраняет текущий расчет под выбранным названием в браузере на этом компьютере.">Сохранить расчет</button>
+      <button id="loadButton" type="button" class="ghost" title="Открывает список расчетов, сохраненных в браузере на этом компьютере.">Открыть расчет</button>
     </div>
   </header>
 
@@ -115,11 +115,68 @@
       <div id="quickTotals" class="quick-totals" aria-live="polite"></div>
     </section>
 
+    <section class="card report-settings-card">
+      <details id="reportSettingsDetails" class="report-settings-details">
+        <summary class="report-settings-summary">
+          <span class="report-settings-title-text">Данные для оформленного отчета</span>
+        </summary>
+        <div class="report-settings-grid">
+          <label class="wide-field">
+            <span>Наименование объекта</span>
+            <input id="objectNameInput" type="text" autocomplete="off" placeholder="Например: Жилой дом, секция 1" />
+          </label>
+          <label>
+            <span>Расчет выполнен для, жителей</span>
+            <input id="residentsInput" type="number" step="1" min="0" />
+          </label>
+          <label>
+            <span>Этажность, этажей</span>
+            <input id="floorsInput" type="number" step="1" min="0" />
+          </label>
+          <label>
+            <span>Внутреннее пожаротушение, л/с</span>
+            <input id="internalFireFlowInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Описание внутреннего пожаротушения</span>
+            <input id="internalFireDescriptionInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Автоматическое пожаротушение, л/с</span>
+            <input id="autoFireFlowInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Наружное пожаротушение, л/с</span>
+            <input id="outdoorFireFlowInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Должность</span>
+            <input id="engineerPositionInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Дата подписи</span>
+            <input id="engineerDateInput" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>ФИО / подпись</span>
+            <input id="engineerNameInput" type="text" autocomplete="off" />
+          </label>
+        </div>
+      </details>
+    </section>
+
     <section class="card summary-card">
       <details id="summaryDetails" class="summary-details" open>
         <summary class="summary-summary">
           <span class="summary-title-text">Свод расчетных данных</span>
           <span class="compact-actions summary-actions">
+            <label class="report-variant-control" title="Черновой вариант — только расчетная таблица. Оформленный отчет — титул, объект, таблица и заключительный текст.">
+              <span>Форма</span>
+              <select id="reportVariantSelect">
+                <option value="draft">Черновой вариант</option>
+                <option value="formatted">Оформленный отчет</option>
+              </select>
+            </label>
             <button id="printButton" type="button" class="secondary">Печать</button>
             <button id="wordButton" type="button" class="secondary">Скачать Word</button>
             <button id="copyButton" type="button" class="ghost">Копировать</button>
@@ -146,9 +203,40 @@
         <li>Введи количество U или площадь F, затем нажми «Добавить».</li>
         <li>Выделяй строки в таблице, чтобы править, дублировать, удалять или перемещать их вверх/вниз.</li>
         <li>Галочка «В расчет» включает строку в расчет и печатную таблицу.</li>
-        <li>Для выдачи результата нажми «Печать» или «Скачать Word».</li>
+        <li>Перед печатью или скачиванием выбери форму: «Черновой вариант» или «Оформленный отчет».</li>
+        <li>Для оформленного отчета заполни «Наименование объекта» и данные в конце отчета.</li>
+        <li>«Сохранить расчет» записывает строки и данные отчета под именем в браузере на этом компьютере.</li>
+        <li>«Открыть расчет» показывает список сохраненных расчетов; оттуда можно загрузить или удалить нужный вариант.</li>
       </ol>
       <button type="submit">Закрыть</button>
+    </form>
+  </dialog>
+
+  <dialog id="saveDialog">
+    <form method="dialog" class="dialog-card save-dialog-card">
+      <h2>Сохранить расчет</h2>
+      <p class="dialog-note">Расчет будет сохранен в браузере на этом компьютере. Word-отчет при этом не создается.</p>
+      <label class="dialog-field">
+        <span>Название расчета</span>
+        <input id="calculationNameInput" type="text" autocomplete="off" placeholder="Например: Секция 7-9, вариант 1" />
+      </label>
+      <div class="dialog-actions">
+        <button id="saveNamedCalculationButton" type="button">Сохранить</button>
+        <button type="submit" class="ghost">Отмена</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="loadDialog">
+    <form method="dialog" class="dialog-card load-dialog-card">
+      <h2>Открыть сохраненный расчет</h2>
+      <p class="dialog-note">Выбери расчет из списка. Данные хранятся только в этом браузере.</p>
+      <div id="savedCalculationsList" class="saved-calculations-list"></div>
+      <div class="dialog-actions">
+        <button id="loadSelectedCalculationButton" type="button" disabled>Открыть</button>
+        <button id="deleteSavedCalculationButton" type="button" class="ghost danger" disabled>Удалить</button>
+        <button type="submit" class="ghost">Закрыть</button>
+      </div>
     </form>
   </dialog>
 

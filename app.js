@@ -1,6 +1,8 @@
 'use strict';
 
-const STORAGE_KEY = 'nagruzki-online-rows-v1';
+const AUTO_DRAFT_KEY = 'nagruzki-online-rows-v1';
+const SAVED_CALCULATIONS_KEY = 'nagruzki-online-saved-calculations-v1';
+const REPORT_META_KEY = 'nagruzki-online-report-meta-v1';
 
 const WaterMode = Object.freeze({ COLD: 0, HOT: 1, TOTAL: 2 });
 const modeNames = {
@@ -12,6 +14,20 @@ const modeNames = {
 let rows = [];
 let selectedRowId = null;
 let activeSummaryMode = 'all';
+let selectedSavedCalculationId = null;
+
+const DEFAULT_REPORT_META = Object.freeze({
+  objectName: 'Наименование',
+  residents: '947',
+  floors: '15',
+  internalFireFlow: '5,2',
+  internalFireDescription: '2 струи по 2,6 л/с',
+  autoFireFlow: '30',
+  outdoorFireFlow: '30',
+  engineerPosition: 'Инженер ВК',
+  engineerDate: formatRuDate(new Date()),
+  engineerName: 'И.И. Иванов'
+});
 
 const els = {};
 
@@ -55,6 +71,24 @@ function init() {
     copyButton: $('copyButton'),
     helpButton: $('helpButton'),
     helpDialog: $('helpDialog'),
+    saveDialog: $('saveDialog'),
+    loadDialog: $('loadDialog'),
+    calculationNameInput: $('calculationNameInput'),
+    saveNamedCalculationButton: $('saveNamedCalculationButton'),
+    savedCalculationsList: $('savedCalculationsList'),
+    loadSelectedCalculationButton: $('loadSelectedCalculationButton'),
+    deleteSavedCalculationButton: $('deleteSavedCalculationButton'),
+    reportVariantSelect: $('reportVariantSelect'),
+    objectNameInput: $('objectNameInput'),
+    residentsInput: $('residentsInput'),
+    floorsInput: $('floorsInput'),
+    internalFireFlowInput: $('internalFireFlowInput'),
+    internalFireDescriptionInput: $('internalFireDescriptionInput'),
+    autoFireFlowInput: $('autoFireFlowInput'),
+    outdoorFireFlowInput: $('outdoorFireFlowInput'),
+    engineerPositionInput: $('engineerPositionInput'),
+    engineerDateInput: $('engineerDateInput'),
+    engineerNameInput: $('engineerNameInput'),
     summaryDetails: $('summaryDetails'),
     rowsTable: $('rowsTable'),
     selectedNormsPanel: $('selectedNormsPanel'),
@@ -64,6 +98,7 @@ function init() {
 
   fillConsumerTypes();
   bindEvents();
+  loadReportMetaFromStorage();
   loadRowsFromStorage(false);
   refreshParameterOptions();
   renderAll();
@@ -90,14 +125,22 @@ function bindEvents() {
   on(els.duplicateButton, 'click', duplicateSelectedRow);
   on(els.deleteButton, 'click', deleteSelectedRow);
   on(els.clearButton, 'click', clearRows);
-  on(els.saveButton, 'click', () => saveRowsToStorage(true));
-  on(els.loadButton, 'click', () => loadRowsFromStorage(true));
+  on(els.saveButton, 'click', openSaveCalculationDialog);
+  on(els.loadButton, 'click', openLoadCalculationDialog);
+  on(els.saveNamedCalculationButton, 'click', saveNamedCalculationFromDialog);
+  on(els.loadSelectedCalculationButton, 'click', loadSelectedSavedCalculation);
+  on(els.deleteSavedCalculationButton, 'click', deleteSelectedSavedCalculation);
   on(els.printButton, 'click', printReport);
   on(els.wordButton, 'click', downloadWordReport);
   on(els.copyButton, 'click', copySummary);
   const summaryActions = document.querySelector('.summary-actions');
   on(summaryActions, 'click', event => event.stopPropagation());
   on(summaryActions, 'keydown', event => event.stopPropagation());
+
+  document.querySelectorAll('.report-settings-card input').forEach(input => {
+    input.addEventListener('input', () => saveReportMetaToStorage(false));
+    input.addEventListener('change', () => saveReportMetaToStorage(false));
+  });
   on(els.helpButton, 'click', () => {
     if (els.helpDialog && typeof els.helpDialog.showModal === 'function') els.helpDialog.showModal();
   });
@@ -612,7 +655,7 @@ function getUsageHoursValue(row) {
 
 function printReport() {
   const reportRows = getRowsForReport();
-  const html = buildReportDocumentHtml(reportRows, false);
+  const html = buildReportDocumentHtml(reportRows, false, getSelectedReportVariant());
 
   // Печать через временный iframe безопаснее, чем window.open/document.write:
   // после закрытия окна печати основная страница не теряет обработчики кнопок.
@@ -672,56 +715,131 @@ function printReport() {
 
 function downloadWordReport() {
   const reportRows = getRowsForReport();
-  const html = buildReportDocumentHtml(reportRows, true);
+  const variant = getSelectedReportVariant();
+  const html = buildReportDocumentHtml(reportRows, true, variant);
   const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
-  downloadBlob(blob, `Расчет_водопотребления_${timestamp()}.doc`);
+  const prefix = variant === 'formatted' ? 'Оформленный_отчет_водопотребления' : 'Черновой_расчет_водопотребления';
+  downloadBlob(blob, `${prefix}_${timestamp()}.doc`);
 }
 
-function buildReportDocumentHtml(reportRows, forWord) {
+function getSelectedReportVariant() {
+  return els.reportVariantSelect?.value === 'formatted' ? 'formatted' : 'draft';
+}
+
+function buildReportDocumentHtml(reportRows, forWord, variant = 'draft') {
   const generatedAt = new Date().toLocaleString('ru-RU', {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit'
   });
   const bodyClass = forWord ? 'WordSection1' : 'print-section';
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Отчет по расчету водопотребления</title>
+  const meta = getReportMeta();
+  const title = variant === 'formatted' ? 'Предварительный расчет водопотребления и водоотведения' : 'Отчет по расчету водопотребления';
+  const content = variant === 'formatted'
+    ? buildFormattedReportContent(reportRows, meta)
+    : buildDraftReportContent(reportRows, generatedAt);
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
   <style>${buildReportStyles()}</style>
-  </head><body><div class="${bodyClass}">
+  </head><body><div class="${bodyClass}">${content}</div></body></html>`;
+}
+
+function buildDraftReportContent(reportRows, generatedAt) {
+  return `
     <h1>Отчет по расчету водопотребления</h1>
     <p class="meta">Дата формирования: ${escapeHtml(generatedAt)}</p>
     <p class="meta">Нормативная база: СП 30.13330.2020, таблица А.2.</p>
     ${buildMainReportTable(reportRows)}
-  </div></body></html>`;
+  `;
+}
+
+function buildFormattedReportContent(reportRows, meta) {
+  return `
+    <div class="company-block">
+      <p>Акционерное общество</p>
+      <p>проектная компания «Эффект»</p>
+      <p>ИНН 9701256261 КПП 770101001</p>
+      <p>101000, г. Москва, муниципальный округ Басманный,</p>
+      <p>б-р Чистопрудный, д.13, стр.1, помещ.1/1</p>
+      <p>тел./факс: +7(3952)500-171, e-mail: info@pk-effect.ru</p>
+    </div>
+    <h1 class="formatted-report-title">Предварительный расчет водопотребления и водоотведения.<br>Объект: «${escapeHtml(meta.objectName)}»</h1>
+    ${buildMainReportTable(reportRows)}
+    ${buildReportFooter(meta)}
+  `;
+}
+
+function buildReportFooter(meta) {
+  const residentsText = safe(meta.residents);
+  const floorsText = safe(meta.floors);
+  const internalFlow = safe(meta.internalFireFlow);
+  const internalDescription = safe(meta.internalFireDescription);
+  const autoFlow = safe(meta.autoFireFlow);
+  const outdoorFlow = safe(meta.outdoorFireFlow);
+  return `
+    <div class="report-footer-text">
+      <p>Расчёт выполнен в соответствии с СП 30.13330.2020.</p>
+      <p>Количество проживающих в квартире жилого многоквартирного дома для определения расчётных расходов воды принято по формуле:</p>
+      <p class="formula-line">N<sub>кв.жит.</sub> = К+1</p>
+      <p>где N<sub>кв.жит.</sub> – расчетное количество жителей в квартире; К – количество жилых комнат в квартире.</p>
+      <p>Расчет выполнен для ${escapeHtml(residentsText)} жителей, этажность жилого дома – ${escapeHtml(floorsText)} этажей.</p>
+      <p>Максимальный расход воды на внутреннее пожаротушение определен в соответствии с СП 10.13130.2020 и составляет не менее ${escapeHtml(internalFlow)} л/с (${escapeHtml(internalDescription)}).</p>
+      <p>Максимальный расход воды на автоматическое пожаротушение определен в соответствии с СП 485.1311500.2020 и составляет не менее ${escapeHtml(autoFlow)} л/с.</p>
+      <p>Максимальный расход воды на наружное пожаротушение определен в соответствии с СП 8.13130.2020 и составляет ${escapeHtml(outdoorFlow)} л/с.</p>
+      <table class="signature-table"><tr>
+        <td>${escapeHtml(meta.engineerPosition)}</td>
+        <td>${escapeHtml(meta.engineerName)}</td>
+      </tr><tr>
+        <td>${escapeHtml(meta.engineerDate)}</td>
+        <td></td>
+      </tr></table>
+    </div>
+  `;
 }
 
 function buildReportStyles() {
   return `
-  @page WordSection1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 0.5cm 0.5cm 0.5cm 0.5cm; }
-  @page { size: A4 landscape; margin: 10mm; }
+  @page WordSection1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 2.5cm 1cm 0.75cm 1.5cm; }
+  @page { size: A4 landscape; margin: 25mm 10mm 7.5mm 15mm; }
   div.WordSection1 { page: WordSection1; }
-  body { font-family: "Times New Roman", serif; font-size: 8pt; color: #111; background: white; }
+  body { font-family: "Times New Roman", serif; font-size: 11pt; color: #111; background: white; }
   h1 { font-size: 14pt; text-align: center; margin: 0 0 8pt; }
-  .meta { margin: 0 0 4pt; font-size: 9pt; }
-  table.report-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  .report-table th, .report-table td { border: 1px solid #000; padding: 2.5pt 3pt; vertical-align: middle; line-height: 1.12; word-wrap: break-word; overflow-wrap: anywhere; }
-  .report-table th { font-weight: bold; text-align: center; background: #d9d9d9; }
+  .meta { margin: 0 0 2pt; font-size: 11pt; }
+  .company-block { text-align: center; margin: 0 0 16pt; font-size: 11pt; line-height: 1.15; }
+  .company-block p { margin: 0 0 2pt; }
+  .formatted-report-title { margin: 0 0 10pt; font-size: 14pt; line-height: 1.15; }
+  .report-footer-text { margin-top: 12pt; font-size: 11pt; line-height: 1.1; page-break-inside: avoid; }
+  .report-footer-text p { margin: 0 0 2pt; }
+  .formula-line { text-align: center; color: #b00000; font-style: italic; }
+  .signature-table { border-collapse: collapse; margin-top: 16pt; width: 60%; table-layout: fixed; }
+  .signature-table td { border: 0; padding: 0 18pt 0 0; font-size: 11pt; text-align: left; vertical-align: top; }
+  table.report-table { width: 10.5in; border-collapse: collapse; table-layout: fixed; margin: 0 auto; }
+  .report-table th, .report-table td { border: 1px solid #000; padding: 0.5pt 1.2pt; vertical-align: middle; line-height: 1.0; word-wrap: break-word; overflow-wrap: normal; }
+  .report-table th { font-weight: bold; text-align: center; background: white; }
   .report-table td { text-align: center; }
   .report-table td.left { text-align: left; }
-  .report-table .section-row th { background: #d9d9d9; font-size: 9pt; padding: 4pt 3pt; }
+  .report-table .section-row th { background: white; font-size: 11pt; padding: 0.5pt 1.2pt; }
   .report-table .total-label { font-weight: bold; text-align: center; }
-  .report-table .number-row td { font-weight: bold; background: #f2f2f2; }
+  .report-table .number-row td { font-weight: bold; background: white; }
+  .report-page-break { page-break-before: always; height: 0; line-height: 0; }
   .nowrap { white-space: nowrap; }
   @media print { body { margin: 0; } }
   `;
 }
 
 function buildMainReportTable(reportRows) {
-  const colWidths = [18, 5, 6, 6, 6, 5, 7, 7, 6, 5.5, 5.5, 4.5, 4.5, 6.5, 7.5];
-  const colgroup = colWidths.map(width => `<col style="width:${width}%">`).join('');
-  const sections = [
+  const firstTable = buildReportTable([
     [WaterMode.COLD, 'Расчет расходов холодной воды'],
-    [WaterMode.HOT, 'Расчет расходов горячей воды'],
+    [WaterMode.HOT, 'Расчет расходов горячей воды']
+  ], reportRows);
+  const secondTable = buildReportTable([
     [WaterMode.TOTAL, 'Расчет расходов воды общий']
-  ].map(([mode, title]) => buildReportSection(reportRows, mode, title)).join('');
+  ], reportRows);
+  return `${firstTable}<div class="report-page-break"></div>${secondTable}`;
+}
+
+function buildReportTable(sectionsDefinition, reportRows) {
+  const colWidths = [23.128, 5.628, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 4.874, 5.205, 5.205, 5.139, 5.139, 8.214, 8.221];
+  const colgroup = colWidths.map(width => `<col style="width:${width}%">`).join('');
+  const sections = sectionsDefinition.map(([mode, title]) => buildReportSection(reportRows, mode, title)).join('');
 
   return `<table class="report-table">
     <colgroup>${colgroup}</colgroup>
@@ -735,16 +853,16 @@ function buildReportTableHeader() {
   return `
     <tr>
       <th rowspan="3">Наименование<br>водопотребителей</th>
-      <th rowspan="3">коли-<br>чество<br>U</th>
+      <th rowspan="3">коли-<br>чество<br>U<br>сутки<br>час</th>
       <th colspan="2">нормы рас-<br>хода воды</th>
       <th colspan="2">расход воды<br>прибором</th>
       <th colspan="3">расход воды<br>водопотребителями</th>
       <th rowspan="3">NP<br>q<sub>hr,u</sub> · U<br>q<sub>0</sub> · 3600</th>
-      <th rowspan="3">NPhr<br>q<sub>hr,u</sub> · U<br>q<sub>0,hr</sub></th>
+      <th rowspan="3">NP<sub>hr</sub><br>q<sub>hr,u</sub> · U<br>q<sub>0,hr</sub></th>
       <th rowspan="3">α</th>
-      <th rowspan="3">αhr</th>
-      <th rowspan="3">макси-<br>мальный<br>расчетный<br>расход<br>5 · q<sub>0</sub> · α<br>q<sub>c</sub>, q<sub>h</sub><br>л/с</th>
-      <th rowspan="3">макси-<br>мальный<br>часовой<br>расход<br>0.005 · q<sub>0,hr</sub> · αhr<br>q<sub>chr</sub>, q<sub>hhr</sub><br>м³/ч</th>
+      <th rowspan="3">α<sub>hr</sub></th>
+      <th rowspan="3">макси-<br>мальный<br>расчетный<br>расход<br>5 · q<sub>0</sub> · α<br>q<sup>c</sup>, q<sup>h</sup><br>л/с</th>
+      <th rowspan="3">макси-<br>мальный<br>часовой<br>расход<br>0,005 · q<sub>0,hr</sub> · α<sub>hr</sub><br>q<sup>c</sup><sub>hr</sub>, q<sup>h</sup><sub>hr</sub><br>м³/ч</th>
     </tr>
     <tr>
       <th>сутки</th>
@@ -756,13 +874,13 @@ function buildReportTableHeader() {
       <th>ср.час</th>
     </tr>
     <tr>
-      <th>qᶜ<sub>u</sub><br>qʰ<sub>u</sub><br>л/сут</th>
-      <th>qᶜ<sub>hr,u</sub><br>qʰ<sub>hr,u</sub><br>л/ч</th>
-      <th>qᶜ<sub>0,hr</sub><br>qʰ<sub>0,hr</sub><br>л/ч</th>
-      <th>qᶜ<sub>0</sub><br>qʰ<sub>0</sub><br>л/с</th>
-      <th>q · U<br>1000<br>м³/сут</th>
-      <th>q<sub>hr,u</sub> · U<br>л/ч</th>
-      <th>q<sub>T</sub><br>м³/ч</th>
+      <th>q<sup>c</sup><sub>u</sub><br>q<sup>h</sup><sub>u</sub><br>л/сут</th>
+      <th>q<sup>c</sup><sub>hr,u</sub><br>q<sup>h</sup><sub>hr,u</sub><br>л/ч</th>
+      <th>q<sup>c</sup><sub>0,hr</sub><br>q<sup>h</sup><sub>0,hr</sub><br>л/ч</th>
+      <th>q<sup>c</sup><sub>0</sub><br>q<sup>h</sup><sub>0</sub><br>л/с</th>
+      <th>q<sup>c</sup><sub>0</sub> · U<br>1000<br>q<sup>h</sup><sub>u</sub> · U<br>1000<br>м³/сут</th>
+      <th>q<sup>c</sup><sub>hr</sub> · U<br>q<sup>h</sup><sub>hr</sub> · U<br>л/ч</th>
+      <th>q<sup>c</sup><sub>T</sub><br>q<sup>h</sup><sub>T</sub><br>м³/ч</th>
     </tr>
     <tr class="number-row">${nums}</tr>`;
 }
@@ -916,14 +1034,15 @@ async function copySummary() {
 }
 
 function saveRowsToStorage(showMessage) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  if (showMessage) toast('Расчет сохранен в браузере.');
+  localStorage.setItem(AUTO_DRAFT_KEY, JSON.stringify(rows));
+  saveReportMetaToStorage(false);
+  if (showMessage) toast('Текущий черновик сохранен автоматически в браузере.');
 }
 
 function loadRowsFromStorage(showMessage) {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = localStorage.getItem(AUTO_DRAFT_KEY);
   if (!raw) {
-    if (showMessage) toast('Сохраненных строк нет.');
+    if (showMessage) toast('Автоматического черновика нет.');
     return;
   }
   try {
@@ -931,19 +1050,253 @@ function loadRowsFromStorage(showMessage) {
     rows = normalizeLoadedRows(loaded);
     selectedRowId = rows[0]?.id || null;
     renderAll();
-    if (showMessage) toast(rows.length ? 'Расчет восстановлен.' : 'Сохраненных строк нет.');
+    if (showMessage) toast(rows.length ? 'Автоматический черновик загружен.' : 'Автоматического черновика нет.');
   } catch (error) {
     rows = [];
     selectedRowId = null;
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(AUTO_DRAFT_KEY);
     renderAll();
-    if (showMessage) alert('Не удалось прочитать сохраненный расчет. Сохранение сброшено.');
+    if (showMessage) alert('Не удалось прочитать автоматический черновик. Черновик сброшен.');
     console.error(error);
   }
 }
 
 function clearAutoSave() {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(AUTO_DRAFT_KEY);
+}
+
+function openSaveCalculationDialog() {
+  if (!rows.length) {
+    toast('Сначала добавь хотя бы одну строку расчета.');
+    return;
+  }
+  const defaultName = `Расчет ${new Date().toLocaleDateString('ru-RU')} ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+  els.calculationNameInput.value = defaultName;
+  if (els.saveDialog && typeof els.saveDialog.showModal === 'function') {
+    els.saveDialog.showModal();
+    setTimeout(() => els.calculationNameInput.focus(), 30);
+  } else {
+    const name = prompt('Название расчета', defaultName);
+    if (name) saveNamedCalculation(name);
+  }
+}
+
+function saveNamedCalculationFromDialog() {
+  const name = (els.calculationNameInput.value || '').trim();
+  if (!name) {
+    alert('Укажи название расчета.');
+    return;
+  }
+  saveNamedCalculation(name);
+  if (els.saveDialog) els.saveDialog.close();
+}
+
+function saveNamedCalculation(name) {
+  const calculations = getSavedCalculations();
+  const existingIndex = calculations.findIndex(item => item.name.toLowerCase() === name.toLowerCase());
+  if (existingIndex >= 0 && !confirm(`Расчет «${name}» уже есть. Заменить его?`)) return;
+
+  const item = {
+    id: existingIndex >= 0 ? calculations[existingIndex].id : makeId(),
+    name,
+    savedAt: new Date().toISOString(),
+    rows: JSON.parse(JSON.stringify(rows)),
+    reportMeta: getReportMeta()
+  };
+
+  if (existingIndex >= 0) calculations[existingIndex] = item;
+  else calculations.unshift(item);
+
+  localStorage.setItem(SAVED_CALCULATIONS_KEY, JSON.stringify(calculations));
+  saveRowsToStorage(false);
+  toast(`Расчет «${name}» сохранен.`);
+}
+
+function openLoadCalculationDialog() {
+  renderSavedCalculationsList();
+  if (els.loadDialog && typeof els.loadDialog.showModal === 'function') {
+    els.loadDialog.showModal();
+  } else {
+    const calculations = getSavedCalculations();
+    if (!calculations.length) {
+      toast('Сохраненных расчетов нет.');
+      return;
+    }
+    const names = calculations.map((item, index) => `${index + 1}. ${item.name}`).join('\n');
+    const value = prompt(`Введите номер расчета:\n${names}`, '1');
+    const index = Number(value) - 1;
+    if (Number.isInteger(index) && calculations[index]) loadSavedCalculation(calculations[index].id);
+  }
+}
+
+function renderSavedCalculationsList() {
+  const calculations = getSavedCalculations();
+  selectedSavedCalculationId = calculations[0]?.id || null;
+  els.savedCalculationsList.innerHTML = '';
+
+  if (!calculations.length) {
+    els.savedCalculationsList.innerHTML = '<div class="empty-saved-list">Сохраненных расчетов пока нет.</div>';
+    updateSavedCalculationButtons();
+    return;
+  }
+
+  calculations.forEach(item => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'saved-calculation-item';
+    button.dataset.id = item.id;
+    button.innerHTML = `
+      <span class="saved-calculation-name">${escapeHtml(item.name)}</span>
+      <span class="saved-calculation-meta">${escapeHtml(formatSavedDate(item.savedAt))} · строк: ${item.rows?.length || 0}</span>
+    `;
+    button.addEventListener('click', () => {
+      selectedSavedCalculationId = item.id;
+      renderSavedCalculationsSelection();
+    });
+    els.savedCalculationsList.appendChild(button);
+  });
+
+  renderSavedCalculationsSelection();
+  updateSavedCalculationButtons();
+}
+
+function renderSavedCalculationsSelection() {
+  els.savedCalculationsList.querySelectorAll('.saved-calculation-item').forEach(button => {
+    button.classList.toggle('selected', button.dataset.id === selectedSavedCalculationId);
+  });
+  updateSavedCalculationButtons();
+}
+
+function updateSavedCalculationButtons() {
+  const hasSelection = Boolean(selectedSavedCalculationId);
+  if (els.loadSelectedCalculationButton) els.loadSelectedCalculationButton.disabled = !hasSelection;
+  if (els.deleteSavedCalculationButton) els.deleteSavedCalculationButton.disabled = !hasSelection;
+}
+
+function loadSelectedSavedCalculation() {
+  if (!selectedSavedCalculationId) return;
+  loadSavedCalculation(selectedSavedCalculationId);
+}
+
+function loadSavedCalculation(id) {
+  const calculations = getSavedCalculations();
+  const item = calculations.find(calc => calc.id === id);
+  if (!item) {
+    toast('Выбранный расчет не найден.');
+    renderSavedCalculationsList();
+    return;
+  }
+  rows = normalizeLoadedRows(item.rows || []);
+  setReportMetaInputs(item.reportMeta || loadReportMetaFromStorage(true));
+  selectedRowId = rows[0]?.id || null;
+  renderAll();
+  saveRowsToStorage(false);
+  if (els.loadDialog) els.loadDialog.close();
+  toast(`Расчет «${item.name}» открыт.`);
+}
+
+function deleteSelectedSavedCalculation() {
+  if (!selectedSavedCalculationId) return;
+  const calculations = getSavedCalculations();
+  const item = calculations.find(calc => calc.id === selectedSavedCalculationId);
+  if (!item) return;
+  if (!confirm(`Удалить сохраненный расчет «${item.name}»?`)) return;
+  const updated = calculations.filter(calc => calc.id !== selectedSavedCalculationId);
+  localStorage.setItem(SAVED_CALCULATIONS_KEY, JSON.stringify(updated));
+  selectedSavedCalculationId = updated[0]?.id || null;
+  renderSavedCalculationsList();
+  toast('Сохраненный расчет удален.');
+}
+
+function getSavedCalculations() {
+  try {
+    const raw = localStorage.getItem(SAVED_CALCULATIONS_KEY);
+    const data = raw ? JSON.parse(raw) : [];
+    return Array.isArray(data) ? data.filter(item => item && item.id && item.name && Array.isArray(item.rows)) : [];
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+function formatSavedDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'без даты';
+  return date.toLocaleString('ru-RU', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function getReportMeta() {
+  return normalizeReportMeta({
+    objectName: els.objectNameInput?.value,
+    residents: els.residentsInput?.value,
+    floors: els.floorsInput?.value,
+    internalFireFlow: els.internalFireFlowInput?.value,
+    internalFireDescription: els.internalFireDescriptionInput?.value,
+    autoFireFlow: els.autoFireFlowInput?.value,
+    outdoorFireFlow: els.outdoorFireFlowInput?.value,
+    engineerPosition: els.engineerPositionInput?.value,
+    engineerDate: els.engineerDateInput?.value,
+    engineerName: els.engineerNameInput?.value
+  });
+}
+
+function setReportMetaInputs(meta) {
+  const normalized = normalizeReportMeta(meta);
+  if (els.objectNameInput) els.objectNameInput.value = normalized.objectName;
+  if (els.residentsInput) els.residentsInput.value = normalized.residents;
+  if (els.floorsInput) els.floorsInput.value = normalized.floors;
+  if (els.internalFireFlowInput) els.internalFireFlowInput.value = normalized.internalFireFlow;
+  if (els.internalFireDescriptionInput) els.internalFireDescriptionInput.value = normalized.internalFireDescription;
+  if (els.autoFireFlowInput) els.autoFireFlowInput.value = normalized.autoFireFlow;
+  if (els.outdoorFireFlowInput) els.outdoorFireFlowInput.value = normalized.outdoorFireFlow;
+  if (els.engineerPositionInput) els.engineerPositionInput.value = normalized.engineerPosition;
+  if (els.engineerDateInput) els.engineerDateInput.value = normalized.engineerDate;
+  if (els.engineerNameInput) els.engineerNameInput.value = normalized.engineerName;
+  saveReportMetaToStorage(false);
+}
+
+function normalizeReportMeta(meta) {
+  const source = meta && typeof meta === 'object' ? meta : {};
+  const result = {};
+  Object.keys(DEFAULT_REPORT_META).forEach(key => {
+    const value = source[key];
+    result[key] = value === null || value === undefined || String(value).trim() === ''
+      ? DEFAULT_REPORT_META[key]
+      : String(value).trim();
+  });
+  return result;
+}
+
+function saveReportMetaToStorage(showMessage) {
+  try {
+    localStorage.setItem(REPORT_META_KEY, JSON.stringify(getReportMeta()));
+    if (showMessage) toast('Данные оформленного отчета сохранены.');
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function loadReportMetaFromStorage(returnOnly = false) {
+  let meta = DEFAULT_REPORT_META;
+  try {
+    const raw = localStorage.getItem(REPORT_META_KEY);
+    if (raw) meta = normalizeReportMeta(JSON.parse(raw));
+  } catch (error) {
+    console.error(error);
+    meta = DEFAULT_REPORT_META;
+  }
+  if (returnOnly) return meta;
+  setReportMetaInputs(meta);
+  return meta;
+}
+
+function formatRuDate(date) {
+  const d = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} г.`;
 }
 
 function downloadBlob(blob, fileName) {

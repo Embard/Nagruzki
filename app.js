@@ -767,7 +767,16 @@ async function downloadFormattedDocxReport(reportRows, options = {}) {
     if (!documentFile) throw new Error('В шаблоне не найден word/document.xml');
 
     const xmlText = await documentFile.async('string');
-    const serialized = fillFormattedDocxTemplateXml(xmlText, reportRows);
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+    if (xmlDoc.getElementsByTagName('parsererror').length) {
+      throw new Error('Не удалось прочитать XML шаблона DOCX');
+    }
+
+    fillFormattedDocxTemplate(xmlDoc, reportRows);
+
+    const serialized = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+' + new XMLSerializer().serializeToString(xmlDoc);
     zip.file('word/document.xml', serialized);
 
     const blob = await zip.generateAsync({

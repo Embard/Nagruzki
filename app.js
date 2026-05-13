@@ -19,6 +19,10 @@ function $(id) {
   return document.getElementById(id);
 }
 
+function on(element, eventName, handler) {
+  if (element) element.addEventListener(eventName, handler);
+}
+
 function init() {
   Object.assign(els, {
     consumerTypeSelect: $('consumerTypeSelect'),
@@ -73,22 +77,24 @@ function fillConsumerTypes() {
 }
 
 function bindEvents() {
-  els.consumerTypeSelect.addEventListener('change', refreshParameterOptions);
-  els.parameterSelect.addEventListener('change', loadSelectedNormsToForm);
-  els.addButton.addEventListener('click', addRowFromForm);
-  els.applyButton.addEventListener('click', applyFormToSelectedRow);
-  els.resetFormButton.addEventListener('click', resetForm);
-  els.upButton.addEventListener('click', () => moveSelectedRow(-1));
-  els.downButton.addEventListener('click', () => moveSelectedRow(1));
-  els.duplicateButton.addEventListener('click', duplicateSelectedRow);
-  els.deleteButton.addEventListener('click', deleteSelectedRow);
-  els.clearButton.addEventListener('click', clearRows);
-  els.saveButton.addEventListener('click', () => saveRowsToStorage(true));
-  els.loadButton.addEventListener('click', () => loadRowsFromStorage(true));
-  els.printButton.addEventListener('click', printReport);
-  els.wordButton.addEventListener('click', downloadWordReport);
-  els.copyButton.addEventListener('click', copySummary);
-  els.helpButton.addEventListener('click', () => els.helpDialog.showModal());
+  on(els.consumerTypeSelect, 'change', refreshParameterOptions);
+  on(els.parameterSelect, 'change', loadSelectedNormsToForm);
+  on(els.addButton, 'click', addRowFromForm);
+  on(els.applyButton, 'click', applyFormToSelectedRow);
+  on(els.resetFormButton, 'click', resetForm);
+  on(els.upButton, 'click', () => moveSelectedRow(-1));
+  on(els.downButton, 'click', () => moveSelectedRow(1));
+  on(els.duplicateButton, 'click', duplicateSelectedRow);
+  on(els.deleteButton, 'click', deleteSelectedRow);
+  on(els.clearButton, 'click', clearRows);
+  on(els.saveButton, 'click', () => saveRowsToStorage(true));
+  on(els.loadButton, 'click', () => loadRowsFromStorage(true));
+  on(els.printButton, 'click', printReport);
+  on(els.wordButton, 'click', downloadWordReport);
+  on(els.copyButton, 'click', copySummary);
+  on(els.helpButton, 'click', () => {
+    if (els.helpDialog && typeof els.helpDialog.showModal === 'function') els.helpDialog.showModal();
+  });
 
   document.querySelectorAll('.mode-tab').forEach(button => {
     button.addEventListener('click', () => {
@@ -259,6 +265,40 @@ function clearRows() {
   renderAll();
 }
 
+function normalizeLoadedRows(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(row => row && typeof row === 'object')
+    .map((row, index) => normalizeRow(row, index))
+    .filter(Boolean);
+}
+
+function normalizeRow(row, index) {
+  const typeName = safe(row.consumerTypeName || row.typeName || row.type || row.consumerName);
+  const type = CONSUMER_CATALOG.find(item => item.name === typeName) || CONSUMER_CATALOG[0];
+  const storedOption = row.selectedOption && typeof row.selectedOption === 'object' ? row.selectedOption : null;
+  const optionName = storedOption?.name || row.parameterName || row.parameter || type.parameterOptions?.[0]?.name || '';
+  const option = storedOption || type.parameterOptions.find(item => item.name === optionName) || type.parameterOptions[0] || {};
+
+  return {
+    id: row.id || makeId(),
+    include: row.include !== false,
+    number: index + 1,
+    consumerTypeName: row.consumerTypeName || type.name || '',
+    consumerName: row.consumerName || row.name || type.name || '',
+    parameterName: row.parameterName || option.name || type.defaultParameter || '',
+    parameterGroupName: row.parameterGroupName || option.groupName || 'Параметры',
+    unit: row.unit || option.unit || type.unit || '',
+    uCount: cleanNumberString(row.uCount ?? row.count ?? row.u ?? ''),
+    usageHours: cleanNumberString(row.usageHours ?? row.hours ?? option.defaultHours ?? type.defaultHours ?? ''),
+    selectedOption: {
+      ...cloneOption(option),
+      unit: row.unit || option.unit || type.unit || '',
+      defaultHours: row.usageHours || option.defaultHours || type.defaultHours || ''
+    }
+  };
+}
+
 function getSelectedRow() {
   return rows.find(row => row.id === selectedRowId) || null;
 }
@@ -283,7 +323,7 @@ function renderRowsTable() {
   tbody.innerHTML = '';
 
   rows.forEach(row => {
-    const totalNorm = getNorms(row.selectedOption, WaterMode.TOTAL);
+    const totalNorm = getNorms(row.selectedOption || {}, WaterMode.TOTAL);
     const tr = document.createElement('tr');
     tr.classList.toggle('selected', row.id === selectedRowId);
     tr.innerHTML = `
@@ -337,11 +377,11 @@ function loadRowToForm(row) {
 function updateButtonsState() {
   const selectedIndex = getSelectedRowIndex();
   const hasSelection = selectedIndex >= 0;
-  els.applyButton.disabled = !hasSelection;
-  els.deleteButton.disabled = !hasSelection;
-  els.duplicateButton.disabled = !hasSelection;
-  els.upButton.disabled = !hasSelection || selectedIndex === 0;
-  els.downButton.disabled = !hasSelection || selectedIndex === rows.length - 1;
+  if (els.applyButton) els.applyButton.disabled = !hasSelection;
+  if (els.deleteButton) els.deleteButton.disabled = !hasSelection;
+  if (els.duplicateButton) els.duplicateButton.disabled = !hasSelection;
+  if (els.upButton) els.upButton.disabled = !hasSelection || selectedIndex === 0;
+  if (els.downButton) els.downButton.disabled = !hasSelection || selectedIndex === rows.length - 1;
 }
 
 function getRowsForReport() {
@@ -419,6 +459,7 @@ function appendModeSummary(lines, reportRows, mode) {
 }
 
 function getNorms(option, mode) {
+  option = option || {};
   const totalDaily = toNum(option.totalDailyLiters);
   const hotDaily = toNum(option.hotDailyLiters);
   const totalPeak = toNum(option.totalPeakHourLiters);
@@ -765,14 +806,17 @@ function loadRowsFromStorage(showMessage) {
   }
   try {
     const loaded = JSON.parse(raw);
-    if (Array.isArray(loaded)) {
-      rows = loaded;
-      selectedRowId = rows[0]?.id || null;
-      renderAll();
-      if (showMessage) toast('Расчет восстановлен.');
-    }
-  } catch {
-    if (showMessage) alert('Не удалось прочитать сохраненный расчет.');
+    rows = normalizeLoadedRows(loaded);
+    selectedRowId = rows[0]?.id || null;
+    renderAll();
+    if (showMessage) toast(rows.length ? 'Расчет восстановлен.' : 'Сохраненных строк нет.');
+  } catch (error) {
+    rows = [];
+    selectedRowId = null;
+    localStorage.removeItem(STORAGE_KEY);
+    renderAll();
+    if (showMessage) alert('Не удалось прочитать сохраненный расчет. Сохранение сброшено.');
+    console.error(error);
   }
 }
 

@@ -1,0 +1,651 @@
+'use strict';
+
+const STORAGE_KEY = 'nagruzki-online-rows-v1';
+
+const WaterMode = Object.freeze({ COLD: 0, HOT: 1, TOTAL: 2 });
+const modeNames = {
+  [WaterMode.COLD]: 'Холодная вода',
+  [WaterMode.HOT]: 'Горячая вода',
+  [WaterMode.TOTAL]: 'Общая вода'
+};
+
+let rows = [];
+let selectedRowId = null;
+let activeSummaryMode = 'all';
+
+const els = {};
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function init() {
+  Object.assign(els, {
+    consumerTypeSelect: $('consumerTypeSelect'),
+    parameterSelect: $('parameterSelect'),
+    consumerNameInput: $('consumerNameInput'),
+    countInput: $('countInput'),
+    hoursInput: $('hoursInput'),
+    unitInput: $('unitInput'),
+    manualDetails: $('manualDetails'),
+    totalDailyInput: $('totalDailyInput'),
+    hotDailyInput: $('hotDailyInput'),
+    totalPeakInput: $('totalPeakInput'),
+    hotPeakInput: $('hotPeakInput'),
+    totalDeviceLpsInput: $('totalDeviceLpsInput'),
+    totalDeviceHourlyInput: $('totalDeviceHourlyInput'),
+    branchDeviceLpsInput: $('branchDeviceLpsInput'),
+    branchDeviceHourlyInput: $('branchDeviceHourlyInput'),
+    addButton: $('addButton'),
+    applyButton: $('applyButton'),
+    resetFormButton: $('resetFormButton'),
+    duplicateButton: $('duplicateButton'),
+    deleteButton: $('deleteButton'),
+    clearButton: $('clearButton'),
+    saveButton: $('saveButton'),
+    loadButton: $('loadButton'),
+    printButton: $('printButton'),
+    wordButton: $('wordButton'),
+    copyButton: $('copyButton'),
+    helpButton: $('helpButton'),
+    helpDialog: $('helpDialog'),
+    rowsTable: $('rowsTable'),
+    summaryOutput: $('summaryOutput')
+  });
+
+  fillConsumerTypes();
+  bindEvents();
+  loadRowsFromStorage(false);
+  refreshParameterOptions();
+  renderAll();
+}
+
+function fillConsumerTypes() {
+  els.consumerTypeSelect.innerHTML = '';
+  CONSUMER_CATALOG.forEach((item, index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = item.name;
+    els.consumerTypeSelect.appendChild(option);
+  });
+}
+
+function bindEvents() {
+  els.consumerTypeSelect.addEventListener('change', refreshParameterOptions);
+  els.parameterSelect.addEventListener('change', loadSelectedNormsToForm);
+  els.addButton.addEventListener('click', addRowFromForm);
+  els.applyButton.addEventListener('click', applyFormToSelectedRow);
+  els.resetFormButton.addEventListener('click', resetForm);
+  els.duplicateButton.addEventListener('click', duplicateSelectedRow);
+  els.deleteButton.addEventListener('click', deleteSelectedRow);
+  els.clearButton.addEventListener('click', clearRows);
+  els.saveButton.addEventListener('click', () => saveRowsToStorage(true));
+  els.loadButton.addEventListener('click', () => loadRowsFromStorage(true));
+  els.printButton.addEventListener('click', printReport);
+  els.wordButton.addEventListener('click', downloadWordReport);
+  els.copyButton.addEventListener('click', copySummary);
+  els.helpButton.addEventListener('click', () => els.helpDialog.showModal());
+
+  document.querySelectorAll('.mode-tab').forEach(button => {
+    button.addEventListener('click', () => {
+      activeSummaryMode = button.dataset.mode;
+      document.querySelectorAll('.mode-tab').forEach(b => b.classList.toggle('active', b === button));
+      updateSummary();
+    });
+  });
+
+  ['input', 'change'].forEach(eventName => {
+    document.querySelectorAll('input, select').forEach(input => {
+      input.addEventListener(eventName, () => {
+        if (input.closest('.input-card')) {
+          updateManualState();
+        }
+      });
+    });
+  });
+}
+
+function refreshParameterOptions() {
+  const type = getSelectedType();
+  els.parameterSelect.innerHTML = '';
+  type.parameterOptions.forEach((option, index) => {
+    const item = document.createElement('option');
+    item.value = String(index);
+    item.textContent = option.name;
+    els.parameterSelect.appendChild(item);
+  });
+  els.consumerNameInput.value = type.name;
+  loadSelectedNormsToForm();
+}
+
+function getSelectedType() {
+  return CONSUMER_CATALOG[toInt(els.consumerTypeSelect.value, 0)] || CONSUMER_CATALOG[0];
+}
+
+function getSelectedOption() {
+  const type = getSelectedType();
+  return type.parameterOptions[toInt(els.parameterSelect.value, 0)] || type.parameterOptions[0];
+}
+
+function loadSelectedNormsToForm() {
+  const type = getSelectedType();
+  const option = getSelectedOption();
+  els.consumerNameInput.value = type.name;
+  els.unitInput.value = option.unit || type.unit || '';
+  els.hoursInput.value = option.defaultHours || type.defaultHours || '';
+  setNormInputs(option);
+  updateManualState();
+}
+
+function setNormInputs(option) {
+  els.totalDailyInput.value = valueOrEmpty(option.totalDailyLiters);
+  els.hotDailyInput.value = valueOrEmpty(option.hotDailyLiters);
+  els.totalPeakInput.value = valueOrEmpty(option.totalPeakHourLiters);
+  els.hotPeakInput.value = valueOrEmpty(option.hotPeakHourLiters);
+  els.totalDeviceLpsInput.value = valueOrEmpty(option.totalDeviceLps);
+  els.totalDeviceHourlyInput.value = valueOrEmpty(option.totalDeviceHourlyLiters);
+  els.branchDeviceLpsInput.value = valueOrEmpty(option.branchDeviceLps);
+  els.branchDeviceHourlyInput.value = valueOrEmpty(option.branchDeviceHourlyLiters);
+}
+
+function updateManualState() {
+  const option = getSelectedOption();
+  if (option && option.isCustom) {
+    els.manualDetails.open = true;
+  }
+}
+
+function readNormInputs() {
+  const base = cloneOption(getSelectedOption());
+  base.unit = els.unitInput.value.trim() || base.unit;
+  base.defaultHours = els.hoursInput.value.trim() || base.defaultHours;
+  base.totalDailyLiters = toNum(els.totalDailyInput.value);
+  base.hotDailyLiters = toNum(els.hotDailyInput.value);
+  base.totalPeakHourLiters = toNum(els.totalPeakInput.value);
+  base.hotPeakHourLiters = toNum(els.hotPeakInput.value);
+  base.totalDeviceLps = toNum(els.totalDeviceLpsInput.value);
+  base.totalDeviceHourlyLiters = toNum(els.totalDeviceHourlyInput.value);
+  base.branchDeviceLps = toNum(els.branchDeviceLpsInput.value);
+  base.branchDeviceHourlyLiters = toNum(els.branchDeviceHourlyInput.value);
+  base.isCustom = base.isCustom || els.manualDetails.open;
+  return base;
+}
+
+function cloneOption(option) {
+  return JSON.parse(JSON.stringify(option));
+}
+
+function addRowFromForm() {
+  const row = buildRowFromForm();
+  rows.push(row);
+  selectedRowId = row.id;
+  renderAll();
+}
+
+function buildRowFromForm() {
+  const type = getSelectedType();
+  const option = readNormInputs();
+  return {
+    id: makeId(),
+    include: true,
+    consumerTypeName: type.name,
+    consumerName: els.consumerNameInput.value.trim() || type.name,
+    parameterName: option.name || type.defaultParameter,
+    parameterGroupName: option.groupName || 'Параметры',
+    unit: els.unitInput.value.trim() || option.unit || type.unit || '',
+    uCount: cleanNumberString(els.countInput.value),
+    usageHours: cleanNumberString(els.hoursInput.value || option.defaultHours || type.defaultHours || ''),
+    selectedOption: option
+  };
+}
+
+function applyFormToSelectedRow() {
+  if (!selectedRowId) return;
+  const index = rows.findIndex(row => row.id === selectedRowId);
+  if (index < 0) return;
+  const patched = buildRowFromForm();
+  patched.id = selectedRowId;
+  patched.include = rows[index].include;
+  rows[index] = patched;
+  renderAll();
+}
+
+function resetForm() {
+  selectedRowId = null;
+  els.countInput.value = '';
+  refreshParameterOptions();
+  renderAll();
+}
+
+function duplicateSelectedRow() {
+  const source = getSelectedRow();
+  if (!source) return;
+  const copy = JSON.parse(JSON.stringify(source));
+  copy.id = makeId();
+  rows.push(copy);
+  selectedRowId = copy.id;
+  renderAll();
+}
+
+function deleteSelectedRow() {
+  if (!selectedRowId) return;
+  rows = rows.filter(row => row.id !== selectedRowId);
+  selectedRowId = null;
+  renderAll();
+}
+
+function clearRows() {
+  if (!rows.length) return;
+  if (!confirm('Очистить все строки расчета?')) return;
+  rows = [];
+  selectedRowId = null;
+  renderAll();
+}
+
+function getSelectedRow() {
+  return rows.find(row => row.id === selectedRowId) || null;
+}
+
+function renderAll() {
+  renumberRows();
+  renderRowsTable();
+  updateButtonsState();
+  updateSummary();
+}
+
+function renumberRows() {
+  rows.forEach((row, index) => row.number = index + 1);
+}
+
+function renderRowsTable() {
+  const tbody = els.rowsTable.querySelector('tbody');
+  tbody.innerHTML = '';
+
+  rows.forEach(row => {
+    const totalNorm = getNorms(row.selectedOption, WaterMode.TOTAL);
+    const tr = document.createElement('tr');
+    tr.classList.toggle('selected', row.id === selectedRowId);
+    tr.innerHTML = `
+      <td class="center"><input type="checkbox" ${row.include ? 'checked' : ''} aria-label="Включить в отчет" /></td>
+      <td class="num">${row.number}</td>
+      <td>${escapeHtml(row.consumerName)}<div class="small-muted">${escapeHtml(row.consumerTypeName || '')}</div></td>
+      <td>${escapeHtml(row.parameterName || '')}</td>
+      <td class="num">${escapeHtml(row.uCount || '')}</td>
+      <td class="num">${escapeHtml(row.usageHours || '')}</td>
+      <td>${escapeHtml(row.unit || '')}</td>
+      <td class="num">${format(totalNorm.dailyLiters)}</td>
+      <td class="num">${format(totalNorm.peakHourLiters)}</td>
+    `;
+    tr.addEventListener('click', event => {
+      if (event.target instanceof HTMLInputElement && event.target.type === 'checkbox') return;
+      selectRow(row.id);
+    });
+    const checkbox = tr.querySelector('input[type="checkbox"]');
+    checkbox.addEventListener('change', () => {
+      row.include = checkbox.checked;
+      updateSummary();
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function selectRow(rowId) {
+  selectedRowId = rowId;
+  const row = getSelectedRow();
+  if (row) loadRowToForm(row);
+  renderAll();
+}
+
+function loadRowToForm(row) {
+  const typeIndex = Math.max(0, CONSUMER_CATALOG.findIndex(item => item.name === row.consumerTypeName));
+  els.consumerTypeSelect.value = String(typeIndex);
+  refreshParameterOptions();
+
+  const type = getSelectedType();
+  const paramIndex = Math.max(0, type.parameterOptions.findIndex(item => item.name === row.parameterName));
+  els.parameterSelect.value = String(paramIndex);
+
+  els.consumerNameInput.value = row.consumerName || '';
+  els.countInput.value = row.uCount || '';
+  els.hoursInput.value = row.usageHours || '';
+  els.unitInput.value = row.unit || '';
+  setNormInputs(row.selectedOption || getSelectedOption());
+  els.manualDetails.open = Boolean(row.selectedOption && row.selectedOption.isCustom);
+}
+
+function updateButtonsState() {
+  const hasSelection = Boolean(getSelectedRow());
+  els.applyButton.disabled = !hasSelection;
+  els.deleteButton.disabled = !hasSelection;
+  els.duplicateButton.disabled = !hasSelection;
+}
+
+function getRowsForReport() {
+  return rows.filter(row => row.include);
+}
+
+function updateSummary() {
+  const reportRows = getRowsForReport();
+  els.summaryOutput.textContent = buildSummaryText(reportRows, activeSummaryMode);
+}
+
+function buildSummaryText(reportRows, modeFilter = 'all') {
+  const lines = [];
+  lines.push('Свод расчетных данных');
+  lines.push('='.repeat(61));
+  lines.push('Область отчета: отмеченные строки');
+  lines.push('');
+
+  if (!reportRows.length) {
+    lines.push('Список водопотребителей пуст или строки не включены в отчет.');
+    return lines.join('\n');
+  }
+
+  const modes = modeFilter === 'all'
+    ? [WaterMode.COLD, WaterMode.HOT, WaterMode.TOTAL]
+    : [modeFilter === 'cold' ? WaterMode.COLD : modeFilter === 'hot' ? WaterMode.HOT : WaterMode.TOTAL];
+
+  modes.forEach(mode => appendModeSummary(lines, reportRows, mode));
+  return lines.join('\n');
+}
+
+function appendModeSummary(lines, reportRows, mode) {
+  lines.push(modeNames[mode]);
+  lines.push('-'.repeat(45));
+
+  let totalDailyM3 = 0;
+  let totalPeakLiters = 0;
+  let totalAverageHourM3 = 0;
+  let sumNp = 0;
+  let sumNphr = 0;
+
+  reportRows.forEach(row => {
+    const norms = getNorms(row.selectedOption, mode);
+    const u = getUCountValue(row);
+    const t = getUsageHoursValue(row);
+    const area = isAreaBasedRow(row);
+    const multiplier = area ? (t > 0 ? t : 1) : 1;
+
+    const dailyM3 = norms.dailyLiters * u * multiplier / 1000;
+    const peakLiters = norms.peakHourLiters * u;
+    const averageHourM3 = area ? dailyM3 : (t > 0 ? dailyM3 / t : 0);
+    const np = norms.deviceLps > 0 ? peakLiters / (norms.deviceLps * 3600) : 0;
+    const nphr = norms.deviceHourlyLiters > 0 ? peakLiters / norms.deviceHourlyLiters : 0;
+
+    totalDailyM3 += dailyM3;
+    totalPeakLiters += peakLiters;
+    totalAverageHourM3 += averageHourM3;
+    sumNp += np;
+    sumNphr += nphr;
+
+    lines.push(`${row.number}. ${safe(row.consumerName)}`);
+    lines.push(`   Параметр: ${safe(row.parameterName)}`);
+    lines.push(`   ${area ? 'Площадь' : 'U'} = ${safe(row.uCount)}; ${area ? 'Поливок/сутки' : 'T'} = ${safe(row.usageHours)}${area ? '' : ' ч'}`);
+    lines.push(`   q_u,m = ${format(norms.dailyLiters)} л/сут; q_hr,u = ${format(norms.peakHourLiters)} л/ч`);
+    lines.push(`   q0hr = ${format(norms.deviceHourlyLiters)} л/ч; q0 = ${format(norms.deviceLps)} л/с`);
+    lines.push(`   ${area ? 'q·F·n/1000' : 'q·U/1000'} = ${format(dailyM3)} м³/сут`);
+    lines.push(`   q_hr,u·U = ${format(peakLiters)} л/ч`);
+    lines.push(`   ${area ? 'q за сутки поливки' : 'qT'} = ${format(averageHourM3)} ${area ? 'м³/сут' : 'м³/ч'}`);
+    lines.push(`   NP = ${format(np)}; NPhr = ${format(nphr)}`);
+    lines.push('');
+  });
+
+  const q0eq = sumNp > 0 ? totalPeakLiters / (3600 * sumNp) : 0;
+  const q0hrEq = sumNphr > 0 ? totalPeakLiters / sumNphr : 0;
+  const alpha = lookupAlpha(sumNp);
+  const alphaHr = lookupAlpha(sumNphr);
+  const q = 5 * q0eq * alpha;
+  const qhr = 0.005 * q0hrEq * alphaHr;
+
+  lines.push('ИТОГО:');
+  lines.push(`Qсут = ${format(totalDailyM3)} м³/сут`);
+  lines.push(`Qч,пик = ${format(totalPeakLiters)} л/ч`);
+  lines.push(`Qч,ср = ${format(totalAverageHourM3)} м³/ч`);
+  lines.push(`ΣNP = ${format(sumNp)}`);
+  lines.push(`ΣNPhr = ${format(sumNphr)}`);
+  lines.push(`q0экв = ${format(q0eq)} л/с`);
+  lines.push(`q0hr,экв = ${format(q0hrEq)} л/ч`);
+  lines.push(`α = ${format(alpha)}; αhr = ${format(alphaHr)}`);
+  lines.push(`q = ${format(q)} л/с; qhr = ${format(qhr)} м³/ч`);
+  lines.push('');
+}
+
+function getNorms(option, mode) {
+  const totalDaily = toNum(option.totalDailyLiters);
+  const hotDaily = toNum(option.hotDailyLiters);
+  const totalPeak = toNum(option.totalPeakHourLiters);
+  const hotPeak = toNum(option.hotPeakHourLiters);
+  const totalDeviceLps = toNum(option.totalDeviceLps);
+  const totalDeviceHourly = toNum(option.totalDeviceHourlyLiters);
+  const branchDeviceLps = toNum(option.branchDeviceLps);
+  const branchDeviceHourly = toNum(option.branchDeviceHourlyLiters);
+
+  if (mode === WaterMode.TOTAL) {
+    return {
+      dailyLiters: totalDaily,
+      peakHourLiters: totalPeak,
+      deviceLps: totalDeviceLps,
+      deviceHourlyLiters: totalDeviceHourly
+    };
+  }
+
+  if (mode === WaterMode.HOT) {
+    const hasHot = hotDaily > 0 || hotPeak > 0;
+    return {
+      dailyLiters: hotDaily,
+      peakHourLiters: hotPeak,
+      deviceLps: hasHot ? branchDeviceLps : 0,
+      deviceHourlyLiters: hasHot ? branchDeviceHourly : 0
+    };
+  }
+
+  const coldDaily = Math.max(0, totalDaily - hotDaily);
+  const coldPeak = Math.max(0, totalPeak - hotPeak);
+  const coldDeviceLps = branchDeviceLps > 0 ? branchDeviceLps : totalDeviceLps;
+  const coldDeviceHourly = branchDeviceHourly > 0 ? branchDeviceHourly : totalDeviceHourly;
+  const hasCold = coldDaily > 0 || coldPeak > 0;
+  return {
+    dailyLiters: coldDaily,
+    peakHourLiters: coldPeak,
+    deviceLps: hasCold ? coldDeviceLps : 0,
+    deviceHourlyLiters: hasCold ? coldDeviceHourly : 0
+  };
+}
+
+function lookupAlpha(x) {
+  const value = toNum(x);
+  if (value < 0.015) return 0.2;
+  const points = ALPHA_POINTS;
+  for (const [px, py] of points) {
+    if (Math.abs(value - px) < 1e-7) return py;
+  }
+  for (let i = 1; i < points.length; i += 1) {
+    const left = points[i - 1];
+    const right = points[i];
+    if (value <= right[0]) {
+      const t = (value - left[0]) / (right[0] - left[0]);
+      return left[1] + (right[1] - left[1]) * t;
+    }
+  }
+  return points[points.length - 1][1];
+}
+
+function isAreaBasedRow(row) {
+  const dimension = (row.unit || '').toLowerCase();
+  const name = (row.consumerName || '').toLowerCase();
+  return dimension.includes('м²') || dimension.includes('м2') || name.includes('полив') || name.includes('катка');
+}
+
+function getUCountValue(row) {
+  return toNum(row.uCount);
+}
+
+function getUsageHoursValue(row) {
+  return toNum(row.usageHours);
+}
+
+function printReport() {
+  const text = buildSummaryText(getRowsForReport(), 'all');
+  const html = buildReportHtml(text);
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Браузер заблокировал окно печати. Разреши всплывающие окна для этого сайта.');
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 150);
+}
+
+function downloadWordReport() {
+  const text = buildSummaryText(getRowsForReport(), 'all');
+  const html = buildWordHtml(text);
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
+  downloadBlob(blob, `Расчет_нагрузок_СП30_${timestamp()}.doc`);
+}
+
+function buildReportHtml(text) {
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Расчет нагрузок</title>
+  <style>body{font-family:Arial,sans-serif;margin:22px;color:#111}pre{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;line-height:1.35}</style>
+  </head><body><h1>Расчет нагрузок по СП 30.13330.2020</h1><pre>${escapeHtml(text)}</pre></body></html>`;
+}
+
+function buildWordHtml(text) {
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Расчет нагрузок</title>
+  <style>
+  @page WordSection1{size:841.9pt 595.3pt;mso-page-orientation:landscape;margin:0.5cm 0.5cm 0.5cm 0.5cm;}
+  div.WordSection1{page:WordSection1;}
+  body{font-family:"Times New Roman",serif;font-size:10pt;color:#111;}
+  pre{font-family:"Times New Roman",serif;font-size:10pt;white-space:pre-wrap;line-height:1.25;}
+  h1{font-size:14pt;text-align:center;}
+  </style></head><body><div class="WordSection1"><h1>Расчет нагрузок по СП 30.13330.2020</h1><pre>${escapeHtml(text)}</pre></div></body></html>`;
+}
+
+async function copySummary() {
+  try {
+    await navigator.clipboard.writeText(els.summaryOutput.textContent || '');
+    toast('Свод скопирован.');
+  } catch {
+    alert('Не удалось скопировать текст.');
+  }
+}
+
+function saveRowsToStorage(showMessage) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+  if (showMessage) toast('Расчет сохранен в браузере.');
+}
+
+function loadRowsFromStorage(showMessage) {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    if (showMessage) toast('Сохраненных строк нет.');
+    return;
+  }
+  try {
+    const loaded = JSON.parse(raw);
+    if (Array.isArray(loaded)) {
+      rows = loaded;
+      selectedRowId = rows[0]?.id || null;
+      renderAll();
+      if (showMessage) toast('Расчет восстановлен.');
+    }
+  } catch {
+    if (showMessage) alert('Не удалось прочитать сохраненный расчет.');
+  }
+}
+
+function clearAutoSave() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function toast(message) {
+  const node = document.createElement('div');
+  node.textContent = message;
+  node.style.position = 'fixed';
+  node.style.right = '18px';
+  node.style.bottom = '18px';
+  node.style.background = '#0b6f8f';
+  node.style.color = 'white';
+  node.style.padding = '10px 14px';
+  node.style.borderRadius = '10px';
+  node.style.boxShadow = '0 8px 24px rgba(0,0,0,.18)';
+  node.style.zIndex = '9999';
+  document.body.appendChild(node);
+  setTimeout(() => node.remove(), 1800);
+}
+
+function timestamp() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+function makeId() {
+  return `row_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function toNum(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const parsed = Number(String(value).replace(',', '.').trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function cleanNumberString(value) {
+  const text = String(value || '').replace(',', '.').trim();
+  if (text === '') return '';
+  const number = Number(text);
+  return Number.isFinite(number) ? format(number) : '';
+}
+
+function format(value) {
+  const number = toNum(value);
+  if (Math.abs(number) < 1e-7) return '0';
+  return number.toLocaleString('ru-RU', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+    useGrouping: false
+  });
+}
+
+function valueOrEmpty(value) {
+  return Math.abs(toNum(value)) < 1e-7 ? '0' : String(value);
+}
+
+function safe(value) {
+  const text = String(value ?? '').trim();
+  return text || '-';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+window.addEventListener('beforeunload', () => {
+  if (rows.length) saveRowsToStorage(false);
+  else clearAutoSave();
+});
+
+document.addEventListener('DOMContentLoaded', init);

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Расчет нагрузок по СП 30</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Расчет нагрузок / водопотребления</h1>
+      <p>Онлайн-версия программы Nagruzki. Расчет по СП 30.13330.2020, таблица А.2.</p>
+    </div>
+    <div class="topbar-actions">
+      <button id="helpButton" type="button" class="ghost">Справка</button>
+      <button id="saveButton" type="button" class="ghost">Сохранить</button>
+      <button id="loadButton" type="button" class="ghost">Восстановить</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card input-card">
+      <div class="section-title">
+        <h2>Добавить строку</h2>
+        <span class="badge">СП 30, табл. А.2</span>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          <span>Тип водопотребителя</span>
+          <select id="consumerTypeSelect"></select>
+        </label>
+        <label>
+          <span>Параметр</span>
+          <select id="parameterSelect"></select>
+        </label>
+        <label>
+          <span>Наименование в отчете</span>
+          <input id="consumerNameInput" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>U / площадь F</span>
+          <input id="countInput" type="number" step="0.001" min="0" placeholder="Например 25" />
+        </label>
+        <label>
+          <span>T / поливок в сутки</span>
+          <input id="hoursInput" type="number" step="0.001" min="0" />
+        </label>
+        <label>
+          <span>Размерность</span>
+          <input id="unitInput" type="text" />
+        </label>
+      </div>
+
+      <details id="manualDetails" class="manual-box">
+        <summary>Ручные нормативы для выбранной строки</summary>
+        <div class="manual-grid">
+          <label><span>Общ. q<sub>u,m</sub>, л/сут</span><input id="totalDailyInput" type="number" step="0.001" /></label>
+          <label><span>ГВС q<sub>u,m</sub>, л/сут</span><input id="hotDailyInput" type="number" step="0.001" /></label>
+          <label><span>Общ. q<sub>hr,u</sub>, л/ч</span><input id="totalPeakInput" type="number" step="0.001" /></label>
+          <label><span>ГВС q<sub>hr,u</sub>, л/ч</span><input id="hotPeakInput" type="number" step="0.001" /></label>
+          <label><span>Общ. q<sub>0</sub>, л/с</span><input id="totalDeviceLpsInput" type="number" step="0.001" /></label>
+          <label><span>Общ. q<sub>0hr</sub>, л/ч</span><input id="totalDeviceHourlyInput" type="number" step="0.001" /></label>
+          <label><span>Разв. q<sub>0</sub>, л/с</span><input id="branchDeviceLpsInput" type="number" step="0.001" /></label>
+          <label><span>Разв. q<sub>0hr</sub>, л/ч</span><input id="branchDeviceHourlyInput" type="number" step="0.001" /></label>
+        </div>
+      </details>
+
+      <div class="button-row">
+        <button id="addButton" type="button">Добавить</button>
+        <button id="applyButton" type="button" class="secondary" disabled>Применить правку</button>
+        <button id="resetFormButton" type="button" class="ghost">Сброс формы</button>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <div class="section-title">
+        <h2>Водопотребители</h2>
+        <div class="compact-actions">
+          <button id="duplicateButton" type="button" class="ghost" disabled>Дублировать</button>
+          <button id="deleteButton" type="button" class="ghost danger" disabled>Удалить</button>
+          <button id="clearButton" type="button" class="ghost danger">Очистить</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="rowsTable">
+          <thead>
+            <tr>
+              <th>Отчет</th>
+              <th>№</th>
+              <th>Наименование</th>
+              <th>Параметр</th>
+              <th>U / F</th>
+              <th>T / n</th>
+              <th>Ед.</th>
+              <th>q<sub>u,m</sub></th>
+              <th>q<sub>hr,u</sub></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card summary-card">
+      <div class="section-title">
+        <h2>Свод расчетных данных</h2>
+        <div class="compact-actions">
+          <button id="printButton" type="button" class="secondary">Печать</button>
+          <button id="wordButton" type="button" class="secondary">Скачать Word</button>
+          <button id="copyButton" type="button" class="ghost">Копировать</button>
+        </div>
+      </div>
+      <div class="mode-tabs" role="tablist" aria-label="Вид расчета">
+        <button class="mode-tab active" data-mode="all" type="button">Все</button>
+        <button class="mode-tab" data-mode="cold" type="button">Холодная</button>
+        <button class="mode-tab" data-mode="hot" type="button">Горячая</button>
+        <button class="mode-tab" data-mode="total" type="button">Общая</button>
+      </div>
+      <pre id="summaryOutput" class="summary-output"></pre>
+    </section>
+  </main>
+
+  <dialog id="helpDialog">
+    <form method="dialog" class="dialog-card">
+      <h2>Как работает расчет</h2>
+      <p>Каталог нормативов перенесен из программы Nagruzki. Для каждой строки выбирается тип водопотребителя и параметр, задается количество U или площадь F. Для строк с площадью значение T трактуется как количество поливок в сутки.</p>
+      <p>Итоговые расходы считаются отдельно для холодной, горячей и общей воды: ΣNP, ΣNPhr, α, αhr, q и qhr.</p>
+      <button type="submit">Закрыть</button>
+    </form>
+  </dialog>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

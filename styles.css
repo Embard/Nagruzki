@@ -433,3 +433,19 @@ input[readonly] {
   align-items: center;
 }
 .fire-rule-field input[type="hidden"] { display: none; }
+
+.field-hint {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.calculation-note {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}

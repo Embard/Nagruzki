@@ -118,6 +118,15 @@
           <span>T / поливок в сутки</span>
           <input id="hoursInput" type="number" step="0.001" min="0" />
         </label>
+        <label id="cateringPsiField" hidden>
+          <span>Режим общепита (ψ)</span>
+          <select id="cateringPsiInput">
+            <option value="0.45">Кафе / столовая — ψ = 0,45</option>
+            <option value="0.55">Ресторан — ψ = 0,55</option>
+            <option value="1">Другой — ψ = 1,0 (при обосновании)</option>
+          </select>
+          <small class="field-hint">U вводится как число блюд за сутки; Uчас рассчитывается как Uсут / (T · ψ).</small>
+        </label>
         <label>
           <span>Размерность</span>
           <input id="unitInput" type="text" />
@@ -173,7 +182,7 @@
               <th>№</th>
               <th>Наименование</th>
               <th>Параметр</th>
-              <th>U / F</th>
+              <th>Uсут / Uчас / F</th>
               <th>T / n</th>
               <th>Ед.</th>
             </tr>

@@ -52,6 +52,8 @@ function init() {
     consumerNameInput: $('consumerNameInput'),
     countInput: $('countInput'),
     hoursInput: $('hoursInput'),
+    cateringPsiField: $('cateringPsiField'),
+    cateringPsiInput: $('cateringPsiInput'),
     unitInput: $('unitInput'),
     manualDetails: $('manualDetails'),
     totalDailyInput: $('totalDailyInput'),
@@ -190,6 +192,7 @@ function refreshParameterOptions() {
   });
   els.consumerNameInput.value = type.name;
   loadSelectedNormsToForm();
+  updateCateringPsiField();
 }
 
 function getSelectedType() {
@@ -207,7 +210,11 @@ function loadSelectedNormsToForm() {
   els.consumerNameInput.value = type.name;
   els.unitInput.value = option.unit || type.unit || '';
   els.hoursInput.value = option.defaultHours || type.defaultHours || '';
+  if (isCateringType(type.name) && els.cateringPsiInput) {
+    els.cateringPsiInput.value = String(getDefaultCateringPsi(els.consumerNameInput.value || type.name));
+  }
   setNormInputs(option);
+  updateCateringPsiField();
   updateManualState();
 }
 
@@ -269,6 +276,9 @@ function buildRowFromForm() {
     unit: els.unitInput.value.trim() || option.unit || type.unit || '',
     uCount: cleanNumberString(els.countInput.value),
     usageHours: cleanNumberString(els.hoursInput.value || option.defaultHours || type.defaultHours || ''),
+    cateringPsi: isCateringType(type.name)
+      ? cleanNumberString(els.cateringPsiInput?.value || getDefaultCateringPsi(els.consumerNameInput.value || type.name))
+      : '',
     selectedOption: option
   };
 }
@@ -355,6 +365,9 @@ function normalizeRow(row, index) {
     unit: row.unit || option.unit || type.unit || '',
     uCount: cleanNumberString(row.uCount ?? row.count ?? row.u ?? ''),
     usageHours: cleanNumberString(row.usageHours ?? row.hours ?? option.defaultHours ?? type.defaultHours ?? ''),
+    cateringPsi: isCateringType(row.consumerTypeName || type.name)
+      ? cleanNumberString(row.cateringPsi ?? getDefaultCateringPsi(row.consumerName || row.name || type.name))
+      : '',
     selectedOption: {
       ...cloneOption(option),
       unit: row.unit || option.unit || type.unit || '',
@@ -396,7 +409,7 @@ function renderRowsTable() {
       <td class="num">${row.number}</td>
       <td>${escapeHtml(row.consumerName)}<div class="small-muted">${escapeHtml(row.consumerTypeName || '')}</div></td>
       <td>${escapeHtml(row.parameterName || '')}</td>
-      <td class="num">${escapeHtml(row.uCount || '')}</td>
+      <td class="num">${formatRowUCell(row)}</td>
       <td class="num">${escapeHtml(row.usageHours || '')}</td>
       <td>${escapeHtml(row.unit || '')}</td>
     `;
@@ -433,6 +446,12 @@ function loadRowToForm(row) {
   els.consumerNameInput.value = row.consumerName || '';
   els.countInput.value = row.uCount || '';
   els.hoursInput.value = row.usageHours || '';
+  if (els.cateringPsiInput) {
+    els.cateringPsiInput.value = String(
+      row.cateringPsi || getDefaultCateringPsi(row.consumerName || row.consumerTypeName)
+    );
+  }
+  updateCateringPsiField();
   els.unitInput.value = row.unit || '';
   setNormInputs(row.selectedOption || getSelectedOption());
   els.manualDetails.open = Boolean(row.selectedOption && row.selectedOption.isCustom);
@@ -475,7 +494,10 @@ function renderSelectedNormsPanel() {
     </div>`;
   }).join('');
 
-  els.selectedNormsPanel.innerHTML = `<div class="panel-title">Нормативы выбранной строки: ${escapeHtml(row.consumerName || '-')}</div><div class="norms-grid">${cards}</div>`;
+  const cateringNote = isCateringRow(row)
+    ? `<div class="calculation-note">Для общепита U<sub>сут</sub> и U<sub>час</sub> различаются: U<sub>час</sub> = U<sub>сут</sub> / (T · ψ). Текущее ψ = ${format(getCateringPsiValue(row))}.</div>`
+    : '';
+  els.selectedNormsPanel.innerHTML = `<div class="panel-title">Нормативы выбранной строки: ${escapeHtml(row.consumerName || '-')}</div><div class="norms-grid">${cards}</div>${cateringNote}`;
 }
 
 function updateQuickTotals(reportRows) {
@@ -559,7 +581,11 @@ function appendModeSummary(lines, reportRows, mode) {
 
   allLines.forEach((line, index) => {
     lines.push(`${index + 1}. ${safe(line.name)}${line.isSpecial ? ' — отдельная строка, не входит в NP/α/q' : ''}`);
-    lines.push(`   U/F = ${format(line.u)}`);
+    if (line.isCatering) {
+      lines.push(`   Uсут = ${format(line.uDay)} блюд/сут; Uчас = ${format(line.uHour)} блюд/ч; T = ${format(line.t)} ч; ψ = ${format(line.cateringPsi)}`);
+    } else {
+      lines.push(`   U/F = ${format(line.u)}`);
+    }
     lines.push(`   q_u,m = ${format(line.qum)} л/сут; q_hr,u = ${format(line.qhru)} л/ч`);
     lines.push(`   q0hr = ${format(line.q0hr)} л/ч; q0 = ${format(line.q0)} л/с`);
     lines.push(`   Qсут = ${format(line.qDay)} м³/сут`);
@@ -653,6 +679,58 @@ function lookupAlpha(x) {
     }
   }
   return points[points.length - 1][1];
+}
+
+function isCateringType(typeName) {
+  return safe(typeName).toLowerCase().includes('предприятия общественного питания');
+}
+
+function isCateringRow(row) {
+  return Boolean(row) && isCateringType(row.consumerTypeName);
+}
+
+function getDefaultCateringPsi(name) {
+  const normalized = safe(name).toLowerCase();
+  if (normalized.includes('ресторан')) return 0.55;
+  if (normalized.includes('кафе') || normalized.includes('столов')) return 0.45;
+  // В форме значение показывается явно; 0,45 оставлено как исходный вариант для кафе/столовой.
+  return 0.45;
+}
+
+function getCateringPsiValue(row) {
+  const stored = toNum(row?.cateringPsi);
+  return stored > 0 ? stored : getDefaultCateringPsi(row?.consumerName || row?.consumerTypeName);
+}
+
+function getHourlyUCountValue(row, uDay = getUCountValue(row), t = getUsageHoursValue(row), psi = getCateringPsiValue(row)) {
+  if (!isCateringRow(row)) return uDay;
+  if (t <= 0 || psi <= 0) return 0;
+  return uDay / (t * psi);
+}
+
+function formatUForReport(line, plainText = false) {
+  if (!line?.isCatering) return format(line?.u ?? 0);
+  const separator = plainText ? ' / ' : '<br>';
+  return `${format(line.uDay)}${separator}${format(line.uHour)}`;
+}
+
+function formatRowUCell(row) {
+  const uDay = getUCountValue(row);
+  if (!isCateringRow(row)) return escapeHtml(row.uCount || '');
+  const t = getUsageHoursValue(row);
+  const psi = getCateringPsiValue(row);
+  const uHour = getHourlyUCountValue(row, uDay, t, psi);
+  return `${escapeHtml(row.uCount || '')}<div class="small-muted">час: ${escapeHtml(format(uHour))} · ψ=${escapeHtml(format(psi))}</div>`;
+}
+
+function updateCateringPsiField() {
+  if (!els.cateringPsiField || !els.cateringPsiInput) return;
+  const type = getSelectedType();
+  const active = isCateringType(type?.name);
+  els.cateringPsiField.hidden = !active;
+  if (active && !(toNum(els.cateringPsiInput.value) > 0)) {
+    els.cateringPsiInput.value = String(getDefaultCateringPsi(els.consumerNameInput?.value || type?.name));
+  }
 }
 
 function isAreaBasedRow(row) {
@@ -914,7 +992,7 @@ function buildFormattedDocxDataRowXml(tableXml, token, line, specialMode) {
   return replaceDocxTokensInXml(templateRow, {
     '{Строка хозяйственно-питьевых нужд}': safe(line.name),
     '{Поливка / спец. строка}': safe(line.name),
-    '{U/F}': format(line.u),
+    '{U/F}': formatUForReport(line, true),
     '{q_u}': specialValue(line.qum),
     '{q_hr,u}': specialValue(line.qhru),
     '{q0,hr}': specialValue(line.q0hr),
@@ -1081,7 +1159,12 @@ function createEmptyReportLine(name) {
   return {
     name,
     isSpecial: false,
+    isCatering: false,
     u: 0,
+    uDay: 0,
+    uHour: 0,
+    t: 0,
+    cateringPsi: 0,
     qum: 0,
     qhru: 0,
     q0hr: 0,
@@ -1099,7 +1182,7 @@ function populateDocxDataRow(row, line, specialMode) {
   const specialValue = value => specialMode && Math.abs(toNum(value)) < 1e-7 ? dash : format(value);
   const values = [
     safe(line.name),
-    format(line.u),
+    formatUForReport(line, true),
     specialValue(line.qum),
     specialValue(line.qhru),
     specialValue(line.q0hr),
@@ -1499,7 +1582,7 @@ function buildReportDataRow(line, specialMode) {
 
   return `<tr>
     <td class="left">${escapeHtml(line.name)}</td>
-    <td>${format(line.u)}</td>
+    <td>${formatUForReport(line)}</td>
     <td>${specialValue(line.qum)}</td>
     <td>${qhru}</td>
     <td>${q0hr}</td>
@@ -1518,11 +1601,18 @@ function buildReportDataRow(line, specialMode) {
 
 function createReportLine(row, mode) {
   const norms = getNorms(row.selectedOption, mode);
-  const u = getUCountValue(row);
+  const uDay = getUCountValue(row);
   const t = getUsageHoursValue(row);
+  const catering = isCateringRow(row);
+  const cateringPsi = catering ? getCateringPsiValue(row) : 0;
+  const uHour = getHourlyUCountValue(row, uDay, t, cateringPsi);
   const special = isAreaBasedRow(row);
-  const qDay = norms.dailyLiters * u / 1000;
-  const qPeakLh = norms.peakHourLiters * u;
+
+  // Для общепита нормативы таблицы А.2 имеют одинаковую размерность на условное блюдо,
+  // но число блюд за сутки и в час наибольшего водопотребления различается.
+  // Поэтому суточный расход считаем по Uсут, а q_hr,u·U, NP и NPhr — по Uчас.
+  const qDay = norms.dailyLiters * uDay / 1000;
+  const qPeakLh = norms.peakHourLiters * uHour;
   const qT = special
     ? (mode === WaterMode.COLD && qDay > 0 ? qDay / 24 : 0)
     : (t > 0 ? qDay / t : 0);
@@ -1532,7 +1622,12 @@ function createReportLine(row, mode) {
   return {
     name: row.consumerName || row.consumerTypeName || '-',
     isSpecial: special,
-    u,
+    isCatering: catering,
+    u: uDay,
+    uDay,
+    uHour,
+    t,
+    cateringPsi,
     qum: norms.dailyLiters,
     qhru: special ? 0 : norms.peakHourLiters,
     q0hr: special ? 0 : norms.deviceHourlyLiters,

@@ -3,138 +3,61 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Расчет нагрузок по СП 30</title>
-  <link rel="stylesheet" href="styles.css?v=20260910-2" />
+  <title>Расчёт водопотребления — СП 30</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="styles.css?v=20261012-3" />
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <h1>Расчет нагрузок / водопотребления</h1>
-      <p>Онлайн-версия программы Nagruzki. Расчет по СП 30.13330.2020, таблица А.2.</p>
-    </div>
-    <div class="topbar-actions">
+    <div><h1>Расчёт водопотребления</h1><p>СП 30.13330.2020</p></div>
+    <nav class="topbar-actions" aria-label="Расчёты и справка">
+      <button id="loadButton" type="button" class="ghost" title="Открыть расчёт, сохранённый в этом браузере">Открыть</button>
+      <button id="saveButton" type="button" class="ghost" title="Сохранить расчёт под именем в этом браузере">Сохранить</button>
       <button id="helpButton" type="button" class="ghost">Справка</button>
-      <button id="saveButton" type="button" class="ghost" title="Сохраняет текущий расчет под выбранным названием в браузере на этом компьютере.">Сохранить расчет</button>
-      <button id="loadButton" type="button" class="ghost" title="Открывает список расчетов, сохраненных в браузере на этом компьютере.">Открыть расчет</button>
-    </div>
+    </nav>
   </header>
-
   <main class="layout">
     <section class="card report-settings-card top-report-settings-card">
-      <details id="reportSettingsDetails" class="report-settings-details" open>
+      <details id="reportSettingsDetails" class="report-settings-details">
         <summary class="report-settings-summary">
-          <span class="report-settings-title-text">Данные для оформленного отчета</span>
+          <span class="report-settings-title-text">Данные для оформленного отчёта</span>
         </summary>
-        <div class="report-settings-grid">
-          <label class="wide-field">
-            <span>Наименование объекта</span>
-            <input id="objectNameInput" type="text" autocomplete="off" placeholder="Например: Жилой дом, секция 1" />
-          </label>
-          <label>
-            <span>Расчет выполнен для, жителей</span>
-            <input id="residentsInput" type="number" step="1" min="0" readonly title="Подставляется автоматически: сумма U по отмеченным строкам с размерностью «1 житель»." />
-          </label>
-          <label>
-            <span>Этажность дома, этажей</span>
-            <input id="floorsInput" type="number" step="1" min="0" placeholder="Например 15" />
-          </label>
-          <div class="readonly-field fire-rule-field">
-            <span>Внутреннее пожаротушение по СП 10</span>
-            <div class="readonly-value">Жилой дом — автоматически по этажности и условию коридора</div>
-            <input id="internalFireRuleSelect" type="hidden" value="autoResidential" />
-          </div>
-          <div class="checkbox-field">
-            <span>Условие для жилого дома по табл. 7.1</span>
-            <label class="inline-check"><input id="longCorridorInput" type="checkbox" checked /> Коридор более 10 м</label>
-          </div>
-          <label>
-            <span>Внутреннее пожаротушение, л/с</span>
-            <input id="internalFireFlowInput" type="text" autocomplete="off" readonly />
-          </label>
-          <label>
-            <span>Принято для внутреннего пожаротушения</span>
-            <input id="internalFireDescriptionInput" type="text" autocomplete="off" readonly />
-          </label>
-          <label>
-            <span>Автоматическое пожаротушение, л/с</span>
-            <input id="autoFireFlowInput" type="text" autocomplete="off" readonly />
-          </label>
-          <label>
-            <span>Класс функциональной пожарной опасности</span>
-            <select id="outdoorFireClassSelect">
-              <option value="f13f14">Ф1.3, Ф1.4 — жилые дома</option>
-              <option value="f1f2f3f4">Ф1.1, Ф1.2, Ф2, Ф3, Ф4</option>
-            </select>
-          </label>
-          <label>
-            <span>Строительный объем, тыс. м³</span>
-            <input id="buildingVolumeInput" type="number" step="0.001" min="0" placeholder="Например 50" />
-          </label>
-          <label>
-            <span>Наружное пожаротушение, л/с</span>
-            <input id="outdoorFireFlowInput" type="text" autocomplete="off" readonly />
-          </label>
-          <label>
-            <span>Должность</span>
-            <input id="engineerPositionInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>Дата подписи</span>
-            <input id="engineerDateInput" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>ФИО / подпись</span>
-            <input id="engineerNameInput" type="text" autocomplete="off" />
-          </label>
-        </div>
-      </details>
+<div class="report-settings-grid"><label><span>Наименование объекта</span><input id="objectNameInput" type="text" /></label><label><span>Жителей в отмеченных жилых строках</span><input id="residentsInput" type="number" readonly/></label><label><span>Этажность объекта</span><input id="floorsInput" type="number" min="0" step="1"/></label><label><span>Должность</span><input id="engineerPositionInput" type="text" /></label><label><span>ФИО / подпись</span><input id="engineerNameInput" type="text" /></label><label><span>Дата подписи</span><input id="engineerDateInput" type="text" /></label></div><h3>Пожаротушение — ручной ввод</h3><p class="field-hint">Пустое поле означает «не задано». Укажите расчёт, пункт норм или техническое задание, обосновывающее каждый расход, включая нулевой.</p><div class="report-settings-grid"><label><span>Внутреннее пожаротушение, л/с</span><input id="internalFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: внутреннее пожаротушение</span><input id="internalFireDescriptionInput" type="text" /></label><label><span>Автоматическое пожаротушение, л/с</span><input id="autoFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: автоматическое пожаротушение</span><input id="autoFireBasisInput" type="text" /></label><label><span>Наружное пожаротушение, л/с</span><input id="outdoorFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: наружное пожаротушение</span><input id="outdoorFireBasisInput" type="text" /></label></div>      </details>
     </section>
 
 
-    <section class="card input-card">
+
+    <section class="table-card" aria-labelledby="consumersHeading">
       <div class="section-title">
-        <h2>Добавить строку</h2>
-        <span class="badge">СП 30, табл. А.2</span>
+        <h2 id="consumersHeading">Водопотребители</h2>
+        <button id="newRowButton" type="button" class="secondary">Новая строка</button>
       </div>
-
-      <div class="form-grid">
-        <label>
-          <span>Тип водопотребителя</span>
-          <select id="consumerTypeSelect"></select>
-        </label>
-        <label>
-          <span>Параметр</span>
-          <select id="parameterSelect"></select>
-        </label>
-        <label>
-          <span>Наименование в отчете</span>
-          <input id="consumerNameInput" type="text" autocomplete="off" />
-        </label>
-        <label>
-          <span>U / площадь F</span>
-          <input id="countInput" type="number" step="0.001" min="0" placeholder="Например 25" />
-        </label>
-        <label>
-          <span>T / поливок в сутки</span>
-          <input id="hoursInput" type="number" step="0.001" min="0" />
-        </label>
-        <label id="cateringPsiField" hidden>
-          <span>Режим общепита (ψ)</span>
-          <select id="cateringPsiInput">
-            <option value="0.45">Кафе / столовая — ψ = 0,45</option>
-            <option value="0.55">Ресторан — ψ = 0,55</option>
-            <option value="1">Другой — ψ = 1,0 (при обосновании)</option>
-          </select>
-          <small class="field-hint">U вводится как число блюд за сутки; Uчас рассчитывается как Uсут / (T · ψ).</small>
-        </label>
-        <label>
-          <span>Размерность</span>
-          <input id="unitInput" type="text" />
-        </label>
-      </div>
-
+      <div class="table-wrap">
+        <table id="rowsTable">
+          <colgroup><col class="col-include"/><col class="col-number"/><col class="col-name"/><col class="col-parameter"/><col class="col-count"/><col class="col-hours"/><col class="col-unit"/></colgroup>
+          <thead><tr><th scope="col">В расчёт</th><th scope="col">№</th><th scope="col">Наименование</th><th scope="col">Параметр</th><th scope="col">Uсут / Uчас / F</th><th scope="col">T / n</th><th scope="col">Единица</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="editorParking" hidden>
+          <section id="rowEditor" class="input-card" aria-labelledby="editorTitle">
+            <button id="editorToggle" type="button" class="editor-heading" aria-expanded="true" aria-controls="editorBody"><span id="editorTitle">Новая строка</span><span id="editorStatus" role="status"></span><img src="vendor/icons/chevron-up.svg" width="16" height="16" alt="" /></button>
+            <div id="editorBody">
+              <div class="editor-grid">
+                <div class="editor-main">
+                  <label class="type-field"><span>Тип водопотребителя</span><select id="consumerTypeSelect"></select></label>
+                  <label><span>Параметр</span><select id="parameterSelect"></select></label>
+                  <label><span>Наименование в отчёте</span><input id="consumerNameInput" type="text" autocomplete="off" /></label>
+                </div>
+                <div class="editor-values">
+                  <label><span id="countLabel">Количество U</span><input id="countInput" type="number" step="any" min="0" placeholder="Например 25" /></label>
+                  <label><span id="hoursLabel">T, ч</span><input id="hoursInput" type="number" step="any" min="0" /></label>
+                  <label id="cateringPsiField" hidden><span>Режим общепита</span><select id="cateringPsiInput"><option value="0.45">Кафе / столовая — ψ = 0,45</option><option value="0.55">Ресторан — ψ = 0,55</option><option value="1">Другой — ψ = 1,0 (при обосновании)</option></select></label>
+                  <label class="unit-field"><span>Размерность</span><input id="unitInput" type="text" /></label>
+                </div>
+              </div>
+              <div class="editor-footer">
       <details id="manualDetails" class="manual-box">
-        <summary>Ручные нормативы для выбранной строки</summary>
+        <summary>Ручные нормативы</summary>
         <div class="manual-grid">
           <label><span>Общ. q<sub>u,m</sub>, л/сут</span><input id="totalDailyInput" type="number" step="0.001" /></label>
           <label><span>ГВС q<sub>u,m</sub>, л/сут</span><input id="hotDailyInput" type="number" step="0.001" /></label>
@@ -147,96 +70,63 @@
         </div>
       </details>
 
-      <div class="button-row">
-        <button id="addButton" type="button">Добавить</button>
-        <button id="applyButton" type="button" class="secondary" disabled>Применить правку</button>
-        <button id="resetFormButton" type="button" class="ghost">Сброс формы</button>
-      </div>
-    </section>
 
-    <section class="card table-card">
-      <div class="section-title">
-        <h2>Водопотребители</h2>
-        <div class="compact-actions table-actions">
-          <span class="action-group">
-            <button id="upButton" type="button" class="ghost" disabled>↑ Вверх</button>
-            <button id="downButton" type="button" class="ghost" disabled>↓ Вниз</button>
-          </span>
-          <span class="action-separator" aria-hidden="true"></span>
-          <span class="action-group">
-            <button id="duplicateButton" type="button" class="ghost" disabled>Дублировать</button>
-          </span>
-          <span class="action-separator" aria-hidden="true"></span>
-          <span class="action-group">
-            <button id="deleteButton" type="button" class="ghost danger" disabled>Удалить</button>
-            <button id="clearButton" type="button" class="ghost danger">Очистить</button>
-          </span>
+                <div class="button-row editor-actions">
+                  <button id="resetFormButton" type="button" class="secondary">Отмена</button>
+                  <button id="addButton" type="button">Добавить</button>
+                  <button id="applyButton" type="button" hidden>Применить изменения</button>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
-
-      <div class="table-wrap">
-        <table id="rowsTable">
-          <thead>
-            <tr>
-              <th class="include-column">В расчет</th>
-              <th>№</th>
-              <th>Наименование</th>
-              <th>Параметр</th>
-              <th>Uсут / Uчас / F</th>
-              <th>T / n</th>
-              <th>Ед.</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+      <div class="compact-actions table-actions" aria-label="Действия со строками">
+        <button id="upButton" type="button" class="ghost" disabled><img src="vendor/icons/arrow-up.svg" width="14" height="14" alt="" />Вверх</button>
+        <button id="downButton" type="button" class="ghost" disabled><img src="vendor/icons/arrow-down.svg" width="14" height="14" alt="" />Вниз</button>
+        <button id="duplicateButton" type="button" class="ghost" disabled>Дублировать</button>
+        <button id="deleteButton" type="button" class="ghost danger" disabled>Удалить</button>
+        <button id="clearButton" type="button" class="ghost danger">Очистить</button>
       </div>
-
-      <div id="selectedNormsPanel" class="selected-norms-panel" aria-live="polite"></div>
-      <div id="quickTotals" class="quick-totals" aria-live="polite"></div>
     </section>
-
-    <section class="card summary-card">
-      <details id="summaryDetails" class="summary-details" open>
-        <summary class="summary-summary">
-          <span class="summary-title-text">Свод расчетных данных</span>
-          <span class="compact-actions summary-actions">
-            <label class="report-variant-control" title="Черновой вариант — только расчетная таблица. Оформленный отчет — титул, объект, таблица и заключительный текст.">
-              <span>Форма</span>
-              <select id="reportVariantSelect">
-                <option value="draft">Черновой вариант</option>
-                <option value="formatted">Оформленный отчет</option>
-              </select>
-            </label>
-            <button id="printButton" type="button" class="secondary">Печать</button>
-            <button id="wordButton" type="button" class="secondary">Скачать Word</button>
-            <button id="copyButton" type="button" class="ghost">Копировать</button>
-          </span>
-        </summary>
+    <section class="totals-section" aria-labelledby="totalsHeading">
+      <h2 id="totalsHeading">Итоги по отмеченным строкам</h2>
+      <div id="quickTotals" aria-live="polite"></div>
+    </section>
+    <section class="summary-card">
+      <details id="summaryDetails" class="summary-details">
+        <summary><span class="summary-title-text">Подробный расчёт</span></summary>
         <div class="summary-content">
-          <div class="mode-tabs" role="tablist" aria-label="Вид расчета">
-            <button class="mode-tab active" data-mode="all" type="button">Все</button>
-            <button class="mode-tab" data-mode="cold" type="button">Холодная</button>
-            <button class="mode-tab" data-mode="hot" type="button">Горячая</button>
-            <button class="mode-tab" data-mode="total" type="button">Общая</button>
+          <div id="selectedNormsPanel" class="selected-norms-panel"></div>
+          <div class="mode-tabs" role="group" aria-label="Вид расчёта">
+            <button class="mode-tab active" data-mode="all" type="button" aria-pressed="true">Все</button>
+            <button class="mode-tab" data-mode="cold" type="button" aria-pressed="false">Холодная</button>
+            <button class="mode-tab" data-mode="hot" type="button" aria-pressed="false">Горячая</button>
+            <button class="mode-tab" data-mode="total" type="button" aria-pressed="false">Общая</button>
           </div>
           <pre id="summaryOutput" class="summary-output"></pre>
         </div>
       </details>
+      <div class="compact-actions summary-actions">
+        <select id="reportVariantSelect" aria-label="Форма отчёта"><option value="draft">Черновой вариант</option><option value="formatted">Оформленный отчёт</option></select>
+        <button id="printButton" type="button" class="secondary">Печать</button>
+        <button id="wordButton" type="button" class="secondary">Скачать Word</button>
+        <button id="copyButton" type="button" class="secondary">Копировать</button>
+      </div>
     </section>
   </main>
-
   <dialog id="helpDialog">
     <form method="dialog" class="dialog-card">
       <h2>Как пользоваться расчетом</h2>
       <ol class="help-list">
-        <li>Выбери тип водопотребителя и параметр из СП 30, таблица А.2.</li>
+        <li>Нажми «Новая строка», выбери тип водопотребителя и параметр из СП 30, таблица А.2.</li>
         <li>Введи количество U или площадь F, затем нажми «Добавить».</li>
-        <li>Выделяй строки в таблице, чтобы править, дублировать, удалять или перемещать их вверх/вниз.</li>
+        <li>Выбери строку в таблице, внеси правки и нажми «Применить изменения». «Отмена» возвращает сохранённые значения. Строки можно дублировать, удалять и перемещать.</li>
         <li>Галочка «В расчет» включает строку в расчет и печатную таблицу.</li>
         <li>Перед печатью или скачиванием выбери форму: «Черновой вариант» — большая расчетная таблица, или «Оформленный отчет» — отчет с шапкой и текстом.</li>
-        <li>Для оформленного отчета заполни объект, этажность и параметры наружного пожаротушения в верхнем блоке. Внутреннее пожаротушение для жилого дома считается автоматически: этажность + условие коридора.</li>
-        <li>«Сохранить расчет» записывает строки и данные отчета под именем в браузере на этом компьютере.</li>
-        <li>«Открыть расчет» показывает список сохраненных расчетов; оттуда можно загрузить или удалить нужный вариант.</li>
+        <li>Пожарные расходы вводятся вручную с основанием.</li>
+        <li>«Сохранить» записывает строки и данные отчета под именем в браузере на этом компьютере.</li>
+        <li>«Открыть» показывает список сохраненных расчетов; оттуда можно загрузить или удалить нужный вариант.</li>
       </ol>
       <button type="submit">Закрыть</button>
     </form>
@@ -270,8 +160,11 @@
     </form>
   </dialog>
 
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="data.js?v=20260910-2"></script>
-  <script src="app.js?v=20260910-2"></script>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="template-data.js"></script>
+  <script src="data.js?v=20261012-3"></script>
+  <script src="calculation.js?v=20261012-3"></script>
+  <script src="app.js?v=20261012-3"></script>
+  <script src="report-utils.js?v=20261012-3"></script>
 </body>
 </html>

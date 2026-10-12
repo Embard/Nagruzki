@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Расчёт водопотребления — СП 30</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="styles.css?v=20261012-3" />
+  <link rel="stylesheet" href="styles.css?v=20261012-4" />
 </head>
 <body>
   <header class="topbar">
@@ -22,7 +22,7 @@
         <summary class="report-settings-summary">
           <span class="report-settings-title-text">Данные для оформленного отчёта</span>
         </summary>
-<div class="report-settings-grid"><label><span>Наименование объекта</span><input id="objectNameInput" type="text" /></label><label><span>Жителей в отмеченных жилых строках</span><input id="residentsInput" type="number" readonly/></label><label><span>Этажность объекта</span><input id="floorsInput" type="number" min="0" step="1"/></label><label><span>Должность</span><input id="engineerPositionInput" type="text" /></label><label><span>ФИО / подпись</span><input id="engineerNameInput" type="text" /></label><label><span>Дата подписи</span><input id="engineerDateInput" type="text" /></label></div><h3>Пожаротушение — ручной ввод</h3><p class="field-hint">Пустое поле означает «не задано». Укажите расчёт, пункт норм или техническое задание, обосновывающее каждый расход, включая нулевой.</p><div class="report-settings-grid"><label><span>Внутреннее пожаротушение, л/с</span><input id="internalFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: внутреннее пожаротушение</span><input id="internalFireDescriptionInput" type="text" /></label><label><span>Автоматическое пожаротушение, л/с</span><input id="autoFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: автоматическое пожаротушение</span><input id="autoFireBasisInput" type="text" /></label><label><span>Наружное пожаротушение, л/с</span><input id="outdoorFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: наружное пожаротушение</span><input id="outdoorFireBasisInput" type="text" /></label></div>      </details>
+<div class="report-settings-grid"><label><span>Наименование объекта</span><input id="objectNameInput" type="text" /></label><label><span>Жителей в отмеченных жилых строках</span><input id="residentsInput" type="number" readonly/></label><label><span>Этажность объекта</span><input id="floorsInput" type="number" min="0" step="1"/></label><label><span>Должность</span><input id="engineerPositionInput" type="text" /></label><label><span>ФИО / подпись</span><input id="engineerNameInput" type="text" /></label><label><span>Дата подписи</span><input id="engineerDateInput" type="text" /></label></div><h3>Пожаротушение — ручной ввод</h3><p class="field-hint">Поля необязательны. Пустой расход означает «не задано», а не ноль.</p><div class="report-settings-grid"><label><span>Внутреннее пожаротушение, л/с</span><input id="internalFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: внутреннее пожаротушение</span><input id="internalFireDescriptionInput" type="text" /></label><label><span>Автоматическое пожаротушение, л/с</span><input id="autoFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: автоматическое пожаротушение</span><input id="autoFireBasisInput" type="text" /></label><label><span>Наружное пожаротушение, л/с</span><input id="outdoorFireFlowInput" type="number" min="0" step="any" placeholder="Не задано"/></label><label><span>Основание: наружное пожаротушение</span><input id="outdoorFireBasisInput" type="text" /></label></div>      </details>
     </section>
 
 
@@ -44,29 +44,30 @@
             <div id="editorBody">
               <div class="editor-grid">
                 <div class="editor-main">
-                  <label class="type-field"><span>Тип водопотребителя</span><select id="consumerTypeSelect"></select></label>
-                  <label><span>Параметр</span><select id="parameterSelect"></select></label>
-                  <label><span>Наименование в отчёте</span><input id="consumerNameInput" type="text" autocomplete="off" /></label>
+                  <label class="type-field"><span>Тип водопотребителя</span><select id="consumerTypeSelect" name="consumerTypeSelect" autocomplete="off"></select></label>
+                  <label><span>Параметр</span><select id="parameterSelect" name="parameterSelect" autocomplete="off"></select></label>
+                  <label><span>Наименование в отчёте</span><input id="consumerNameInput" name="consumerNameInput" type="text" autocomplete="off" /></label>
                 </div>
                 <div class="editor-values">
-                  <label><span id="countLabel">Количество U</span><input id="countInput" type="number" step="any" min="0" placeholder="Например 25" /></label>
-                  <label><span id="hoursLabel">T, ч</span><input id="hoursInput" type="number" step="any" min="0" /></label>
-                  <label id="cateringPsiField" hidden><span>Режим общепита</span><select id="cateringPsiInput"><option value="0.45">Кафе / столовая — ψ = 0,45</option><option value="0.55">Ресторан — ψ = 0,55</option><option value="1">Другой — ψ = 1,0 (при обосновании)</option></select></label>
-                  <label class="unit-field"><span>Размерность</span><input id="unitInput" type="text" /></label>
+                  <label><span id="countLabel">Количество U</span><input id="countInput" name="countInput" type="number" step="any" min="0" placeholder="Например 25" autocomplete="off" /></label>
+                  <label><span id="hoursLabel">T, ч</span><input id="hoursInput" name="hoursInput" type="number" step="any" min="0" autocomplete="off" /></label>
+                  <label id="cateringPsiField" hidden><span>Режим общепита</span><select id="cateringPsiInput" name="cateringPsiInput" autocomplete="off"><option value="0.45">Кафе / столовая — ψ = 0,45</option><option value="0.55">Ресторан — ψ = 0,55</option><option value="1">Другой — ψ = 1,0 (при обосновании)</option></select></label>
+                  <label class="unit-field"><span>Размерность</span><input id="unitInput" name="unitInput" type="text" autocomplete="off" /></label>
                 </div>
               </div>
+              <p id="formError" class="form-error" role="alert" hidden></p>
               <div class="editor-footer">
       <details id="manualDetails" class="manual-box">
         <summary>Ручные нормативы</summary>
         <div class="manual-grid">
-          <label><span>Общ. q<sub>u,m</sub>, л/сут</span><input id="totalDailyInput" type="number" step="0.001" /></label>
-          <label><span>ГВС q<sub>u,m</sub>, л/сут</span><input id="hotDailyInput" type="number" step="0.001" /></label>
-          <label><span>Общ. q<sub>hr,u</sub>, л/ч</span><input id="totalPeakInput" type="number" step="0.001" /></label>
-          <label><span>ГВС q<sub>hr,u</sub>, л/ч</span><input id="hotPeakInput" type="number" step="0.001" /></label>
-          <label><span>Общ. q<sub>0</sub>, л/с</span><input id="totalDeviceLpsInput" type="number" step="0.001" /></label>
-          <label><span>Общ. q<sub>0hr</sub>, л/ч</span><input id="totalDeviceHourlyInput" type="number" step="0.001" /></label>
-          <label><span>Разв. q<sub>0</sub>, л/с</span><input id="branchDeviceLpsInput" type="number" step="0.001" /></label>
-          <label><span>Разв. q<sub>0hr</sub>, л/ч</span><input id="branchDeviceHourlyInput" type="number" step="0.001" /></label>
+          <label><span>Общ. q<sub>u,m</sub>, л/сут</span><input id="totalDailyInput" name="totalDailyInput" type="number" step="0.001" autocomplete="off" /></label>
+          <label><span>ГВС q<sub>u,m</sub>, л/сут</span><input id="hotDailyInput" name="hotDailyInput" type="number" step="0.001" autocomplete="off" /></label>
+          <label><span>Общ. q<sub>hr,u</sub>, л/ч</span><input id="totalPeakInput" name="totalPeakInput" type="number" step="0.001" autocomplete="off" /></label>
+          <label><span>ГВС q<sub>hr,u</sub>, л/ч</span><input id="hotPeakInput" name="hotPeakInput" type="number" step="0.001" autocomplete="off" /></label>
+          <label><span>Общ. q<sub>0</sub>, л/с</span><input id="totalDeviceLpsInput" name="totalDeviceLpsInput" type="number" step="0.001" autocomplete="off" /></label>
+          <label><span>Общ. q<sub>0hr</sub>, л/ч</span><input id="totalDeviceHourlyInput" name="totalDeviceHourlyInput" type="number" step="0.001" autocomplete="off" /></label>
+          <label><span>Разв. q<sub>0</sub>, л/с</span><input id="branchDeviceLpsInput" name="branchDeviceLpsInput" type="number" step="0.001" autocomplete="off" /></label>
+          <label><span>Разв. q<sub>0hr</sub>, л/ч</span><input id="branchDeviceHourlyInput" name="branchDeviceHourlyInput" type="number" step="0.001" autocomplete="off" /></label>
         </div>
       </details>
 
@@ -108,7 +109,7 @@
         </div>
       </details>
       <div class="compact-actions summary-actions">
-        <select id="reportVariantSelect" aria-label="Форма отчёта"><option value="draft">Черновой вариант</option><option value="formatted">Оформленный отчёт</option></select>
+        <select id="reportVariantSelect" name="reportVariantSelect" autocomplete="off" aria-label="Форма отчёта"><option value="formatted" selected>Оформленный отчёт</option><option value="draft">Только таблица</option></select>
         <button id="printButton" type="button" class="secondary">Печать</button>
         <button id="wordButton" type="button" class="secondary">Скачать Word</button>
         <button id="copyButton" type="button" class="secondary">Копировать</button>
@@ -123,8 +124,8 @@
         <li>Введи количество U или площадь F, затем нажми «Добавить».</li>
         <li>Выбери строку в таблице, внеси правки и нажми «Применить изменения». «Отмена» возвращает сохранённые значения. Строки можно дублировать, удалять и перемещать.</li>
         <li>Галочка «В расчет» включает строку в расчет и печатную таблицу.</li>
-        <li>Перед печатью или скачиванием выбери форму: «Черновой вариант» — большая расчетная таблица, или «Оформленный отчет» — отчет с шапкой и текстом.</li>
-        <li>Пожарные расходы вводятся вручную с основанием.</li>
+        <li>Перед печатью или скачиванием выбери форму: по умолчанию «Оформленный отчёт» — документ по Word-шаблону с шапкой, данными объекта, таблицами и заключением. «Только таблица» — отдельный черновой вариант.</li>
+        <li>Пожарные расходы и основания вводятся вручную по необходимости; пустые поля не мешают сохранению отчёта.</li>
         <li>«Сохранить» записывает строки и данные отчета под именем в браузере на этом компьютере.</li>
         <li>«Открыть» показывает список сохраненных расчетов; оттуда можно загрузить или удалить нужный вариант.</li>
       </ol>
@@ -162,9 +163,9 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="template-data.js"></script>
-  <script src="data.js?v=20261012-3"></script>
-  <script src="calculation.js?v=20261012-3"></script>
-  <script src="app.js?v=20261012-3"></script>
-  <script src="report-utils.js?v=20261012-3"></script>
+  <script src="data.js?v=20261012-4"></script>
+  <script src="calculation.js?v=20261012-4"></script>
+  <script src="app.js?v=20261012-4"></script>
+  <script src="report-utils.js?v=20261012-4"></script>
 </body>
 </html>

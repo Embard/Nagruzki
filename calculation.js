@@ -76,7 +76,8 @@ const Calc = (() => {
     } else if (t > 24) fail('T не может превышать 24 часа в сутки.');
     const o = row.selectedOption || {};
     normKeys.forEach((key,i) => nonnegative(o[key], normLabels[i]));
-    if (number(o.hotDailyLiters)>number(o.totalDailyLiters) || number(o.hotPeakHourLiters)>number(o.totalPeakHourLiters)) fail('Норма ГВС не может превышать общую норму.');
+    if (number(o.hotDailyLiters)>number(o.totalDailyLiters)) fail(`Суточная норма ГВС (${o.hotDailyLiters} л/сут) превышает общую (${o.totalDailyLiters} л/сут). Проверьте ручные нормативы.`);
+    if (number(o.hotPeakHourLiters)>number(o.totalPeakHourLiters)) fail(`Часовая норма ГВС (${o.hotPeakHourLiters} л/ч) превышает общую (${o.totalPeakHourLiters} л/ч). Проверьте ручные нормативы.`);
     if (number(o.totalDailyLiters)<=0) fail('Общая суточная норма должна быть больше нуля.');
     if (catering(row) && ![0.45,0.55,1].includes(positive(row.cateringPsi, 'ψ'))) fail('Выберите ψ = 0,45; 0,55 или 1.');
     if (k === 'standard') {

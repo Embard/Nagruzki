@@ -20,6 +20,7 @@ let selectedSavedCalculationId = null;
 let editorVisible = true;
 let editorExpanded = true;
 let editorBaseline = null;
+let editorValues = null;
 
 const DEFAULT_REPORT_META = Object.freeze({
   schemaVersion: '2', objectName: '', residents: '', floors: '',
@@ -124,15 +125,29 @@ function fillConsumerTypes() {
 }
 
 function bindEvents() {
-  on(els.consumerTypeSelect, 'change', refreshParameterOptions);
-  on(els.parameterSelect, 'change', loadSelectedNormsToForm);
+  ['input', 'change'].forEach(eventName => {
+    on(els.consumerTypeSelect, eventName, event => {
+      const value = event.target.value;
+      if (editorValues?.consumerTypeSelect === value) return;
+      restoreEditorValues();
+      els.consumerTypeSelect.value = value;
+      refreshParameterOptions();
+    });
+    on(els.parameterSelect, eventName, event => {
+      const value = event.target.value;
+      if (editorValues?.parameterSelect === value) return;
+      restoreEditorValues();
+      els.parameterSelect.value = value;
+      loadSelectedNormsToForm();
+    });
+  });
   on(els.addButton, 'click', addRowFromForm);
   on(els.applyButton, 'click', applyFormToSelectedRow);
   on(els.resetFormButton, 'click', cancelEditing);
   on($('newRowButton'), 'click', resetForm);
   on($('editorToggle'), 'click', () => { editorExpanded = !editorExpanded; updateEditorState(); });
-  on(els.rowEditor, 'input', updateEditorState);
-  on(els.rowEditor, 'change', updateEditorState);
+  on(els.rowEditor, 'input', recordEditorInput);
+  on(els.rowEditor, 'change', recordEditorInput);
   on(els.upButton, 'click', () => moveSelectedRow(-1));
   on(els.downButton, 'click', () => moveSelectedRow(1));
   on(els.duplicateButton, 'click', duplicateSelectedRow);
@@ -218,6 +233,8 @@ function loadSelectedNormsToForm() {
   els.manualDetails.open = Boolean(option.isCustom);
   updateCateringPsiField();
   updateManualState();
+  captureEditorValues();
+  showFormError('');
 }
 
 function setNormInputs(option) {
@@ -266,6 +283,7 @@ function addRowFromForm() {
 }
 
 function buildRowFromForm() {
+  restoreEditorValues();
   const type = getSelectedType(), option = readNormInputs();
   const row = {id:makeId(),schemaVersion:3,include:true,catalogId:option.catalogId,
     consumerTypeName:type.name,consumerName:els.consumerNameInput.value.trim()||type.name,
@@ -288,7 +306,29 @@ function applyFormToSelectedRow() {
 }
 
 function editorSnapshot() {
-  return els.rowEditor ? JSON.stringify(Array.from(els.rowEditor.querySelectorAll('input, select'), input => [input.id, input.value])) : null;
+  return editorValues ? JSON.stringify(editorValues) : null;
+}
+
+function captureEditorValues() {
+  if (!els.rowEditor) return;
+  editorValues = Object.fromEntries(Array.from(els.rowEditor.querySelectorAll('input, select'), input => [input.id, input.value]));
+}
+
+function recordEditorInput(event) {
+  // Only an explicit edit updates its field. Browser restoration must not mix
+  // unrelated select/norm values into the current consumer's draft.
+  const input = event.target;
+  if (!editorValues || !Object.hasOwn(editorValues, input.id)) return;
+  editorValues[input.id] = input.value;
+  showFormError('');
+  updateEditorState();
+}
+
+function restoreEditorValues() {
+  if (!editorValues || !els.rowEditor) return;
+  for (const input of els.rowEditor.querySelectorAll('input, select')) {
+    if (Object.hasOwn(editorValues, input.id)) input.value = editorValues[input.id];
+  }
 }
 
 function hasEditorChanges() {
@@ -296,6 +336,7 @@ function hasEditorChanges() {
 }
 
 function markEditorClean() {
+  captureEditorValues();
   editorBaseline = editorSnapshot();
   updateEditorState();
 }
@@ -440,11 +481,10 @@ function renumberRows() {
 
 function renderRowsTable() {
   const tbody = els.rowsTable.querySelector('tbody');
-  // Move the live editor instead of rebuilding inputs and losing pending values/listeners.
-  els.editorParking.appendChild(els.rowEditor);
-  tbody.innerHTML = '';
-  function appendEditor() {
-    if (!editorVisible) return;
+  restoreEditorValues();
+  // Keep the form mounted. Reparenting it on each click/recalculation lets
+  // browser form restoration interfere with select and numeric input values.
+  if (!els.editorRow) {
     const tr = document.createElement('tr');
     tr.className = 'editor-row';
     const td = document.createElement('td');
@@ -452,7 +492,13 @@ function renderRowsTable() {
     td.appendChild(els.rowEditor);
     tr.appendChild(td);
     tbody.appendChild(tr);
+    els.editorRow = tr;
   }
+  els.editorRow.hidden = !editorVisible;
+  for (const child of Array.from(tbody.children)) {
+    if (child !== els.editorRow) child.remove();
+  }
+  let afterEditor = false;
   rows.forEach(row => {
     const tr = document.createElement('tr');
     tr.className = 'consumer-row';
@@ -477,15 +523,15 @@ function renderRowsTable() {
       const current = els.rowsTable.querySelector(`input[aria-label="Включить строку ${row.number} в расчёт"]`);
       if (current) current.focus();
     });
-    tbody.appendChild(tr);
-    if (row.id === selectedRowId) appendEditor();
+    if (afterEditor) tbody.appendChild(tr);
+    else tbody.insertBefore(tr, els.editorRow);
+    if (row.id === selectedRowId) afterEditor = true;
   });
   if (!rows.length) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="7" class="empty-table">Пока нет водопотребителей. Заполните новую строку и нажмите «Добавить».</td>';
-    tbody.appendChild(tr);
+    tbody.insertBefore(tr, els.editorRow);
   }
-  if (!getSelectedRow()) appendEditor();
 }
 
 function selectRow(rowId) {
@@ -1124,7 +1170,7 @@ function splitBase64(value) {
 }
 
 function getSelectedReportVariant() {
-  return els.reportVariantSelect?.value === 'formatted' ? 'formatted' : 'draft';
+  return els.reportVariantSelect?.value === 'draft' ? 'draft' : 'formatted';
 }
 
 function buildReportDocumentHtml(reportRows, forWord, variant = 'draft') {
@@ -1806,3 +1852,4 @@ window.addEventListener('beforeunload', event => {
 });
 
 document.addEventListener('DOMContentLoaded', init);
+window.addEventListener('pageshow', () => setTimeout(restoreEditorValues, 0));

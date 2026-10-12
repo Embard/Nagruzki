@@ -2,15 +2,23 @@ const CalcNormFields = ['totalDailyLiters','hotDailyLiters','totalPeakHourLiters
   'totalDeviceLps','totalDeviceHourlyLiters','branchDeviceLps','branchDeviceHourlyLiters'];
 
 function showFormError(message) {
-  if (message) alert(message);
+  const output = $('formError');
+  if (!output) { if (message) alert(message); return; }
+  output.textContent = message || '';
+  output.hidden = !message;
+  if (message) {
+    editorVisible = true;
+    editorExpanded = true;
+    if (/норм|прибором/i.test(message)) els.manualDetails.open = true;
+    updateEditorState();
+  }
 }
 
 function validateFire(meta) {
-  for(const [key,basis,label] of [['internalFireFlow','internalFireDescription','Внутреннее'],['autoFireFlow','autoFireBasis','Автоматическое'],['outdoorFireFlow','outdoorFireBasis','Наружное']]) {
-    if(meta[key]==='') continue;
+  for(const [key,label] of [['internalFireFlow','Внутреннее'],['autoFireFlow','Автоматическое'],['outdoorFireFlow','Наружное']]) {
+    if(String(meta[key] ?? '').trim()==='') continue;
     const n=Calc.number(meta[key]);
     if(!Number.isFinite(n)||n<0) throw new Error(label+' пожаротушение: расход должен быть неотрицательным числом.');
-    if(!meta[basis]) throw new Error(label+' пожаротушение: укажите основание принятого расхода, в том числе для 0 л/с.');
   }
 }
 function validateForExport() {
@@ -27,8 +35,11 @@ function footerLines(meta) {
   const lines=['Нормативная база расчёта водопотребления: СП 30.13330.2020, предоставленная редакция с изменениями 1–5.',
     `Расчётное число жителей по отмеченным жилым строкам: ${meta.residents}.`];
   if(meta.floors) lines.push('Этажность объекта: '+meta.floors+'.');
-  for(const [key,basis,label] of [['internalFireFlow','internalFireDescription','Внутреннее'],['autoFireFlow','autoFireBasis','Автоматическое'],['outdoorFireFlow','outdoorFireBasis','Наружное']])
-    lines.push(`${label} пожаротушение: ${meta[key]===''?'расход не задан':format(Calc.number(meta[key]))+' л/с, ручной ввод. Основание: '+meta[basis]}.`);
+  for(const [key,basis,label] of [['internalFireFlow','internalFireDescription','Внутреннее'],['autoFireFlow','autoFireBasis','Автоматическое'],['outdoorFireFlow','outdoorFireBasis','Наружное']]) {
+    const flow=String(meta[key] ?? '').trim()===''?'расход не задан':format(Calc.number(meta[key]))+' л/с, ручной ввод';
+    const source=String(meta[basis] ?? '').trim();
+    lines.push(`${label} пожаротушение: ${flow}.${source?' Основание: '+source+'.':''}`);
+  }
   lines.push([meta.engineerPosition,meta.engineerName,meta.engineerDate].filter(Boolean).join(' · '));
   return lines;
 }

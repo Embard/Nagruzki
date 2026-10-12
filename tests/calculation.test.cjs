@@ -76,7 +76,31 @@ check('equivalent device flow keeps full precision',()=>{
 check('fire values migrate from old auto rules to empty and remain manual',()=>{
   assert.equal(run(`normalizeReportMeta({autoFireFlow:'30'}).autoFireFlow`),'');
   assert.equal(run(`normalizeReportMeta({schemaVersion:'2',autoFireFlow:'12.5',autoFireBasis:'Расчёт'}).autoFireFlow`),'12.5');
-  assert.throws(()=>run(`validateFire({...DEFAULT_REPORT_META,autoFireFlow:'30'})`),/основание/);
+  assert.doesNotThrow(()=>run(`validateFire({...DEFAULT_REPORT_META,autoFireFlow:'30'})`));
+});
+
+check('optional fire inputs allow export and distinguish blank, zero and supplied basis',()=>{
+  assert.doesNotThrow(()=>run(`validateFire({...DEFAULT_REPORT_META})`));
+  assert.doesNotThrow(()=>run(`validateFire({...DEFAULT_REPORT_META,internalFireFlow:'5.2',outdoorFireFlow:'24'})`));
+  assert.doesNotThrow(()=>run(`validateFire({...DEFAULT_REPORT_META,autoFireFlow:'0'})`));
+  for(const key of ['internalFireFlow','autoFireFlow','outdoorFireFlow']) {
+    assert.throws(()=>run(`validateFire({...DEFAULT_REPORT_META,${key}:'-1'})`),/неотрицательным/);
+    assert.throws(()=>run(`validateFire({...DEFAULT_REPORT_META,${key}:'abc'})`),/числом/);
+  }
+  const lines=run(`footerLines({...DEFAULT_REPORT_META,internalFireFlow:'5.2',autoFireFlow:'0',outdoorFireBasis:'По заданию'})`);
+  assert.ok(lines.includes('Внутреннее пожаротушение: 5,2 л/с, ручной ввод.'));
+  assert.ok(lines.includes('Автоматическое пожаротушение: 0 л/с, ручной ввод.'));
+  assert.ok(lines.includes('Наружное пожаротушение: расход не задан. Основание: По заданию.'));
+});
+
+check('formatted template report is the default and table-only export remains explicit',()=>{
+  assert.equal(run('getSelectedReportVariant()'),'formatted');
+  run(`els.reportVariantSelect={value:'draft'}`);
+  assert.equal(run('getSelectedReportVariant()'),'draft');
+  run(`els.reportVariantSelect.value='formatted'`);
+  assert.equal(run('getSelectedReportVariant()'),'formatted');
+  const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+  assert.match(html,/<option value="formatted" selected>/);
 });
 
 check('mean flows use each row T and are summed',()=>{

@@ -111,8 +111,8 @@ function init() {
   fillConsumerTypes();
   bindEvents();
   loadReportMetaFromStorage();
-  loadRowsFromStorage(false);
   refreshParameterOptions();
+  loadRowsFromStorage(false);
   renderAll();
 }
 
@@ -258,6 +258,7 @@ function cloneOption(option) {
 
 function addRowFromForm() {
   const row = buildRowFromForm();
+  if (!validateRowsForCalculation([row])) return;
   rows.push(row);
   selectedRowId = row.id;
   renderAll();
@@ -288,6 +289,7 @@ function applyFormToSelectedRow() {
   const index = rows.findIndex(row => row.id === selectedRowId);
   if (index < 0) return;
   const patched = buildRowFromForm();
+  if (!validateRowsForCalculation([patched])) return;
   patched.id = selectedRowId;
   patched.include = rows[index].include;
   rows[index] = patched;
@@ -348,6 +350,7 @@ function normalizeLoadedRows(value) {
 }
 
 function normalizeRow(row, index) {
+  row = migrateCorrectedPoolNorms(row);
   const typeName = safe(row.consumerTypeName || row.typeName || row.type || row.consumerName);
   const type = CONSUMER_CATALOG.find(item => item.name === typeName) || CONSUMER_CATALOG[0];
   const storedOption = row.selectedOption && typeof row.selectedOption === 'object' ? row.selectedOption : null;
@@ -444,10 +447,10 @@ function loadRowToForm(row) {
   els.parameterSelect.value = String(paramIndex);
 
   els.consumerNameInput.value = row.consumerName || '';
-  els.countInput.value = row.uCount || '';
-  els.hoursInput.value = row.usageHours || '';
+  els.countInput.value = cleanNumberString(row.uCount);
+  els.hoursInput.value = cleanNumberString(row.usageHours);
   if (els.cateringPsiInput) {
-    els.cateringPsiInput.value = String(
+    els.cateringPsiInput.value = cleanNumberString(
       row.cateringPsi || getDefaultCateringPsi(row.consumerName || row.consumerTypeName)
     );
   }
@@ -484,7 +487,7 @@ function renderSelectedNormsPanel() {
     [WaterMode.TOTAL, 'Общая']
   ];
   const cards = modes.map(([mode, title]) => {
-    const norms = getNorms(row.selectedOption || {}, mode);
+    const norms = getRowNorms(row, mode);
     return `<div class="norm-card">
       <h3>${title}</h3>
       <div class="norm-line"><span>q<sub>u,m</sub>, л/сут</span><strong>${format(norms.dailyLiters)}</strong></div>
@@ -547,6 +550,12 @@ function getRowsForReport() {
 
 function updateSummary() {
   const reportRows = getRowsForReport();
+  const error = reportRows.map(getRowValidationError).find(Boolean);
+  if (error) {
+    els.summaryOutput.textContent = error;
+    if (els.quickTotals) els.quickTotals.textContent = error;
+    return;
+  }
   els.summaryOutput.textContent = buildSummaryText(reportRows, activeSummaryMode);
   updateQuickTotals(reportRows);
 }
@@ -664,6 +673,7 @@ function getNorms(option, mode) {
 }
 
 function lookupAlpha(x) {
+  if (!Number.isFinite(Number(x)) || Number(x) < 0) return NaN;
   const value = toNum(x);
   if (value < 0.015) return 0.2;
   const points = ALPHA_POINTS;
@@ -678,7 +688,8 @@ function lookupAlpha(x) {
       return left[1] + (right[1] - left[1]) * t;
     }
   }
-  return points[points.length - 1][1];
+  // За пределами таблицы коэффициент не определён: не подменяем его последним значением.
+  return NaN;
 }
 
 function isCateringType(typeName) {
@@ -734,9 +745,61 @@ function updateCateringPsiField() {
 }
 
 function isAreaBasedRow(row) {
-  const dimension = (row.unit || '').toLowerCase();
-  const name = (row.consumerName || '').toLowerCase();
-  return dimension.includes('м²') || dimension.includes('м2') || name.includes('полив') || name.includes('катка');
+  return row.consumerTypeName === 'Полив территории' || row.consumerTypeName === 'Заливка поверхности катка';
+}
+
+function isGroupShowerRow(row) {
+  return row.consumerTypeName === 'Душевые в бытовых помещениях промышленных предприятий';
+}
+
+function getRowNorms(row, mode) {
+  const norms = getNorms(row.selectedOption, mode);
+  // В этой категории U — число душевых сеток; часовая норма дана на одну сетку.
+  if (isGroupShowerRow(row)) norms.deviceHourlyLiters = norms.peakHourLiters;
+  return norms;
+}
+
+function migrateCorrectedPoolNorms(source) {
+  const row = { ...source };
+  const option = row.selectedOption;
+  if (row.consumerTypeName !== 'Плавательные бассейны' || !option) return row;
+  if ((row.unit || option.unit) === '% вместимости бассейна в сутки') {
+    row.unit = '1 м³ вместимости бассейна';
+    row.selectedOption = { ...option, unit: row.unit, totalDailyLiters: toNum(option.totalDailyLiters) * 10,
+      hotDailyLiters: toNum(option.hotDailyLiters) * 10 };
+  } else if (!option.isCustom && option.name === 'для зрителей'
+      && toNum(option.branchDeviceLps) === 0.14 && toNum(option.branchDeviceHourlyLiters) === 50) {
+    row.selectedOption = { ...option, defaultHours: '6', branchDeviceLps: 0.1, branchDeviceHourlyLiters: 40 };
+    if (toNum(row.usageHours) === 8) row.usageHours = '6';
+  }
+  return row;
+}
+
+function getRowValidationError(row) {
+  const name = row.consumerName || row.consumerTypeName || 'Строка';
+  const u = cleanNumberString(row.uCount);
+  const t = cleanNumberString(row.usageHours);
+  if (u === '' || Number(u) < 0) return `${name}: количество должно быть неотрицательным числом.`;
+  if (t === '' || Number(t) < 0 || (!isAreaBasedRow(row) && Number(t) === 0)) {
+    return `${name}: укажите ${isAreaBasedRow(row) ? 'неотрицательное число поливок' : 'время водопотребления больше нуля'}.`;
+  }
+  const option = row.selectedOption || {};
+  const fields = ['totalDailyLiters', 'hotDailyLiters', 'totalPeakHourLiters', 'hotPeakHourLiters',
+    'totalDeviceLps', 'totalDeviceHourlyLiters', 'branchDeviceLps', 'branchDeviceHourlyLiters'];
+  if (fields.some(key => !Number.isFinite(Number(String(option[key] ?? 0).replace(',', '.'))) || toNum(option[key]) < 0)) {
+    return `${name}: нормы расхода должны быть неотрицательными числами.`;
+  }
+  if (toNum(option.hotDailyLiters) > toNum(option.totalDailyLiters)
+      || toNum(option.hotPeakHourLiters) > toNum(option.totalPeakHourLiters)) {
+    return `${name}: норма ГВС не может превышать общую норму.`;
+  }
+  return '';
+}
+
+function validateRowsForCalculation(reportRows) {
+  const error = reportRows.map(getRowValidationError).find(Boolean);
+  if (error) alert(error);
+  return !error;
 }
 
 function getUCountValue(row) {
@@ -749,6 +812,7 @@ function getUsageHoursValue(row) {
 
 async function printReport() {
   const reportRows = getRowsForReport();
+  if (!validateRowsForCalculation(reportRows)) return;
   const variant = getSelectedReportVariant();
 
   if (variant === 'formatted') {
@@ -816,6 +880,7 @@ async function printReport() {
 
 async function downloadWordReport() {
   const reportRows = getRowsForReport();
+  if (!validateRowsForCalculation(reportRows)) return;
   const variant = getSelectedReportVariant();
 
   if (variant === 'formatted') {
@@ -1000,8 +1065,8 @@ function buildFormattedDocxDataRowXml(tableXml, token, line, specialMode) {
     '{Qсут}': specialValue(line.qDay),
     '{qhr,u·U}': specialValue(line.qPeakLh),
     '{qT}': specialValue(line.qT),
-    '{NP}': specialMode ? dash : format(line.np),
-    '{NPhr}': specialMode ? dash : format(line.nphr),
+    '{NP}': specialMode || line.isDirect ? dash : format(line.np),
+    '{NPhr}': specialMode || line.isDirect ? dash : format(line.nphr),
     '{α}': '',
     '{αhr}': '',
     '{q}': '',
@@ -1215,8 +1280,8 @@ function populateDocxDataRow(row, line, specialMode) {
     specialValue(line.qDay),
     specialValue(line.qPeakLh),
     specialValue(line.qT),
-    specialMode ? dash : format(line.np),
-    specialMode ? dash : format(line.nphr),
+    specialMode || line.isDirect ? dash : format(line.np),
+    specialMode || line.isDirect ? dash : format(line.nphr),
     '',
     '',
     '',
@@ -1602,8 +1667,8 @@ function buildReportDataRow(line, specialMode) {
   const q0hr = specialValue(line.q0hr);
   const q0 = specialValue(line.q0);
   const qPeak = specialValue(line.qPeakLh);
-  const np = specialMode ? dash : format(line.np);
-  const nphr = specialMode ? dash : format(line.nphr);
+  const np = specialMode || line.isDirect ? dash : format(line.np);
+  const nphr = specialMode || line.isDirect ? dash : format(line.nphr);
 
   return `<tr>
     <td class="left">${escapeHtml(line.name)}</td>
@@ -1625,7 +1690,9 @@ function buildReportDataRow(line, specialMode) {
 }
 
 function createReportLine(row, mode) {
-  const norms = getNorms(row.selectedOption, mode);
+  const norms = getRowNorms(row, mode);
+  const invalid = Boolean(getRowValidationError(row));
+  const direct = isGroupShowerRow(row);
   const uDay = getUCountValue(row);
   const t = getUsageHoursValue(row);
   const catering = isCateringRow(row);
@@ -1636,17 +1703,21 @@ function createReportLine(row, mode) {
   // Для общепита нормативы таблицы А.2 имеют одинаковую размерность на условное блюдо,
   // но число блюд за сутки и в час наибольшего водопотребления различается.
   // Поэтому суточный расход считаем по Uсут, а q_hr,u·U, NP и NPhr — по Uчас.
-  const qDay = norms.dailyLiters * uDay / 1000;
+  const qDay = invalid ? NaN : norms.dailyLiters * uDay * (special ? t : 1) / 1000;
   const qPeakLh = norms.peakHourLiters * uHour;
-  const qT = special
-    ? (mode === WaterMode.COLD && qDay > 0 ? qDay / 24 : 0)
+  const qT = invalid ? NaN : special
+    ? qDay / 24
     : (t > 0 ? qDay / t : 0);
-  const np = norms.deviceLps > 0 ? qPeakLh / (norms.deviceLps * 3600) : 0;
-  const nphr = norms.deviceHourlyLiters > 0 ? qPeakLh / norms.deviceHourlyLiters : 0;
+  const hasDemand = qDay > 0 || qPeakLh > 0;
+  const np = invalid ? NaN : (norms.deviceLps > 0 ? qPeakLh / (norms.deviceLps * 3600) : (hasDemand ? NaN : 0));
+  const nphr = invalid ? NaN : (norms.deviceHourlyLiters > 0 ? qPeakLh / norms.deviceHourlyLiters : (hasDemand ? NaN : 0));
 
   return {
     name: row.consumerName || row.consumerTypeName || '-',
     isSpecial: special,
+    isDirect: direct,
+    directQ: invalid ? NaN : norms.deviceLps * uDay,
+    directQhr: invalid ? NaN : norms.deviceHourlyLiters * uDay / 1000,
     isCatering: catering,
     u: uDay,
     uDay,
@@ -1660,8 +1731,8 @@ function createReportLine(row, mode) {
     qDay,
     qPeakLh: special ? 0 : qPeakLh,
     qT,
-    np: special ? 0 : np,
-    nphr: special ? 0 : nphr
+    np: special || direct ? 0 : np,
+    nphr: special || direct ? 0 : nphr
   };
 }
 
@@ -1669,22 +1740,23 @@ function calculateReportTotals(lines) {
   const totalQDay = sumBy(lines, line => line.qDay);
   const totalPeakLh = sumBy(lines, line => line.qPeakLh);
   const totalQT = sumBy(lines, line => line.qT);
-  const totalNp = sumBy(lines, line => line.np);
-  const totalNphr = sumBy(lines, line => line.nphr);
-  const q0EqRaw = totalNp > 0 ? totalPeakLh / (3600 * totalNp) : 0;
-  const q0hrEqRaw = totalNphr > 0 ? totalPeakLh / totalNphr : 0;
-  const q0Eq = roundTo(q0EqRaw, 2);
-  const q0hrEq = roundTo(q0hrEqRaw, 2);
+  const probabilisticLines = lines.filter(line => !line.isDirect);
+  const directLines = lines.filter(line => line.isDirect);
+  const probabilisticPeakLh = sumBy(probabilisticLines, line => line.qPeakLh);
+  const totalNp = sumBy(probabilisticLines, line => line.np);
+  const totalNphr = sumBy(probabilisticLines, line => line.nphr);
+  const q0Eq = Number.isNaN(totalNp) ? NaN : (totalNp > 0 ? probabilisticPeakLh / (3600 * totalNp) : 0);
+  const q0hrEq = Number.isNaN(totalNphr) ? NaN : (totalNphr > 0 ? probabilisticPeakLh / totalNphr : 0);
   const alpha = lookupAlpha(totalNp);
   const alphaHr = lookupAlpha(totalNphr);
-  const q = 5 * q0Eq * alpha;
-  const qhr = 0.005 * q0hrEq * alphaHr;
+  const q = 5 * q0Eq * alpha + sumBy(directLines, line => line.directQ);
+  const qhr = 0.005 * q0hrEq * alphaHr + sumBy(directLines, line => line.directQhr);
 
   return { totalQDay, totalPeakLh, totalQT, totalNp, totalNphr, q0Eq, q0hrEq, alpha, alphaHr, q, qhr };
 }
 
 function sumBy(items, selector) {
-  return items.reduce((sum, item) => sum + toNum(selector(item)), 0);
+  return items.reduce((sum, item) => sum + Number(selector(item)), 0);
 }
 
 function roundTo(value, decimals) {
@@ -1717,6 +1789,7 @@ function loadRowsFromStorage(showMessage) {
     const loaded = JSON.parse(raw);
     rows = normalizeLoadedRows(loaded);
     selectedRowId = rows[0]?.id || null;
+    if (rows[0]) loadRowToForm(rows[0]);
     renderAll();
     if (showMessage) toast(rows.length ? 'Автоматический черновик загружен.' : 'Автоматического черновика нет.');
   } catch (error) {
@@ -1857,6 +1930,7 @@ function loadSavedCalculation(id) {
   rows = normalizeLoadedRows(item.rows || []);
   setReportMetaInputs(item.reportMeta || loadReportMetaFromStorage(true));
   selectedRowId = rows[0]?.id || null;
+  if (rows[0]) loadRowToForm(rows[0]);
   renderAll();
   saveRowsToStorage(false);
   if (els.loadDialog) els.loadDialog.close();
@@ -2141,13 +2215,14 @@ function toInt(value, fallback) {
 }
 
 function cleanNumberString(value) {
-  const text = String(value || '').replace(',', '.').trim();
+  const text = String(value ?? '').replace(',', '.').trim();
   if (text === '') return '';
   const number = Number(text);
-  return Number.isFinite(number) ? format(number) : '';
+  return Number.isFinite(number) ? String(number) : '';
 }
 
 function format(value) {
+  if (typeof value === 'number' && !Number.isFinite(value)) return '-';
   const number = toNum(value);
   if (Math.abs(number) < 1e-7) return '0';
   return number.toLocaleString('ru-RU', {
@@ -2158,7 +2233,7 @@ function format(value) {
 }
 
 function valueOrEmpty(value) {
-  return Math.abs(toNum(value)) < 1e-7 ? '0' : String(value);
+  return cleanNumberString(value) || '0';
 }
 
 function safe(value) {

@@ -938,22 +938,22 @@ const CONSUMER_CATALOG = [
     "name": "Плавательные бассейны",
     "defaultParameter": "для зрителей",
     "unit": "1 место",
-    "defaultHours": "8",
+    "defaultHours": "6",
     "isCustom": false,
     "parameterOptions": [
       {
         "groupName": "Параметры",
         "name": "для зрителей",
         "unit": "1 место",
-        "defaultHours": "8",
+        "defaultHours": "6",
         "totalDailyLiters": 3.0,
         "hotDailyLiters": 0.85,
         "totalPeakHourLiters": 0.3,
         "hotPeakHourLiters": 0.09,
         "totalDeviceLps": 0.14,
         "totalDeviceHourlyLiters": 60.0,
-        "branchDeviceLps": 0.14,
-        "branchDeviceHourlyLiters": 50.0,
+        "branchDeviceLps": 0.1,
+        "branchDeviceHourlyLiters": 40.0,
         "sourceReference": "СП 30.13330.2020, таблица А.2 (редакция с изм. №1-5)"
       },
       {
@@ -974,9 +974,9 @@ const CONSUMER_CATALOG = [
       {
         "groupName": "Параметры",
         "name": "пополнение бассейна, % вместимости бассейна в сутки",
-        "unit": "% вместимости бассейна в сутки",
+        "unit": "1 м³ вместимости бассейна",
         "defaultHours": "8",
-        "totalDailyLiters": 10.0,
+        "totalDailyLiters": 100.0,
         "hotDailyLiters": 0.0,
         "totalPeakHourLiters": 0.0,
         "hotPeakHourLiters": 0.0,

@@ -1060,13 +1060,38 @@ function escapeXmlText(value) {
 }
 
 function replaceTextTokensInDocument(xmlDoc, tokenMap) {
-  const textNodes = Array.from(xmlDoc.getElementsByTagNameNS(DOCX_W_NS, 't'));
-  textNodes.forEach(node => {
-    let value = node.textContent || '';
-    Object.entries(tokenMap).forEach(([token, replacement]) => {
-      value = value.split(token).join(String(replacement));
+  // Word can split one placeholder across several runs. Match within a
+  // paragraph, then replace only the token's text, preserving all run styles.
+  Array.from(xmlDoc.getElementsByTagNameNS(DOCX_W_NS, 'p')).forEach(paragraph => {
+    let offset = 0;
+    const spans = Array.from(paragraph.getElementsByTagNameNS(DOCX_W_NS, 't'), node => {
+      const start = offset;
+      offset += (node.textContent || '').length;
+      return { node, start, end: offset };
     });
-    node.textContent = value;
+    const text = spans.map(span => span.node.textContent || '').join('');
+    const matches = [];
+    Object.entries(tokenMap).forEach(([token, replacement]) => {
+      if (!token) return;
+      let start = text.indexOf(token);
+      while (start !== -1) {
+        matches.push({ start, end: start + token.length, value: String(replacement) });
+        start = text.indexOf(token, start + token.length);
+      }
+    });
+    // Work from right to left so offsets before a replacement stay valid.
+    matches.sort((a, b) => b.start - a.start).forEach(match => {
+      let first = true;
+      spans.forEach(span => {
+        if (span.end <= match.start || span.start >= match.end) return;
+        const value = span.node.textContent || '';
+        const from = Math.max(0, match.start - span.start);
+        const to = Math.min(span.end - span.start, match.end - span.start);
+        span.node.textContent = value.slice(0, from) + (first ? match.value : '') + value.slice(to);
+        span.node.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
+        first = false;
+      });
+    });
   });
 }
 

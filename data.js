@@ -1335,19 +1335,3 @@ const ALPHA_POINTS = [
   [910,200],[920,202.1],[930,204.2],[940,206.3],[950,208.39],[960,210.49],[970,212.59],[980,214.68],
   [990,216.78],[1000,218.87],[1250,271.14],[1600,343.9],[2000,426.8]
 ];
-
-// Stable calculation metadata; report names and editable unit labels never choose a formula.
-const LEGACY_CATALOG = JSON.parse(JSON.stringify(CONSUMER_CATALOG));
-CONSUMER_CATALOG.forEach((type, ti) => type.parameterOptions.forEach((option, oi) => {
-  option.catalogId = `a2-${ti}-${oi}`;
-  option.calculationKind = ti === 26 ? 'irrigation' : ti === 27 ? 'ice' : ti === 24 ? 'showers' : ti === 22 && oi === 2 ? 'pool' : 'standard';
-  option.residential = ti === 1;
-  option.catalogVersion = 2;
-}));
-Object.assign(CONSUMER_CATALOG[22].parameterOptions[0], {
-  defaultHours: '6', branchDeviceLps: 0.1, branchDeviceHourlyLiters: 40
-});
-Object.assign(CONSUMER_CATALOG[22].parameterOptions[2], {
-  unit: 'м³ вместимости бассейна', totalDailyLiters: 100,
-  sourceReference: 'СП 30, табл. А.2: пополнение 10% вместимости в сутки (100 л на 1 м³)'
-});

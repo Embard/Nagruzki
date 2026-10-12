@@ -17,16 +17,22 @@ let rows = [];
 let selectedRowId = null;
 let activeSummaryMode = 'all';
 let selectedSavedCalculationId = null;
-let editorVisible = true;
-let editorExpanded = true;
-let editorBaseline = null;
-let editorValues = null;
 
 const DEFAULT_REPORT_META = Object.freeze({
-  schemaVersion: '2', objectName: '', residents: '', floors: '',
-  internalFireFlow: '', internalFireDescription: '', autoFireFlow: '', autoFireBasis: '',
-  outdoorFireFlow: '', outdoorFireBasis: '',
-  engineerPosition: 'Инженер ВК', engineerDate: formatRuDate(new Date()), engineerName: ''
+  objectName: 'Наименование',
+  residents: '',
+  floors: '15',
+  internalFireRule: 'autoResidential',
+  longCorridor: 'true',
+  internalFireFlow: '5,2',
+  internalFireDescription: '2 струи по 2,6 л/с',
+  autoFireFlow: '30',
+  outdoorFireClass: 'f13f14',
+  buildingVolume: '',
+  outdoorFireFlow: '30',
+  engineerPosition: 'Инженер ВК',
+  engineerDate: formatRuDate(new Date()),
+  engineerName: 'И.И. Иванов'
 });
 
 const els = {};
@@ -41,8 +47,6 @@ function on(element, eventName, handler) {
 
 function init() {
   Object.assign(els, {
-    rowEditor: $('rowEditor'),
-    editorParking: $('editorParking'),
     consumerTypeSelect: $('consumerTypeSelect'),
     parameterSelect: $('parameterSelect'),
     consumerNameInput: $('consumerNameInput'),
@@ -109,8 +113,6 @@ function init() {
   loadReportMetaFromStorage();
   loadRowsFromStorage(false);
   refreshParameterOptions();
-  if (getSelectedRow()) loadRowToForm(getSelectedRow());
-  markEditorClean();
   renderAll();
 }
 
@@ -125,29 +127,11 @@ function fillConsumerTypes() {
 }
 
 function bindEvents() {
-  ['input', 'change'].forEach(eventName => {
-    on(els.consumerTypeSelect, eventName, event => {
-      const value = event.target.value;
-      if (editorValues?.consumerTypeSelect === value) return;
-      restoreEditorValues();
-      els.consumerTypeSelect.value = value;
-      refreshParameterOptions();
-    });
-    on(els.parameterSelect, eventName, event => {
-      const value = event.target.value;
-      if (editorValues?.parameterSelect === value) return;
-      restoreEditorValues();
-      els.parameterSelect.value = value;
-      loadSelectedNormsToForm();
-    });
-  });
+  on(els.consumerTypeSelect, 'change', refreshParameterOptions);
+  on(els.parameterSelect, 'change', loadSelectedNormsToForm);
   on(els.addButton, 'click', addRowFromForm);
   on(els.applyButton, 'click', applyFormToSelectedRow);
-  on(els.resetFormButton, 'click', cancelEditing);
-  on($('newRowButton'), 'click', resetForm);
-  on($('editorToggle'), 'click', () => { editorExpanded = !editorExpanded; updateEditorState(); });
-  on(els.rowEditor, 'input', recordEditorInput);
-  on(els.rowEditor, 'change', recordEditorInput);
+  on(els.resetFormButton, 'click', resetForm);
   on(els.upButton, 'click', () => moveSelectedRow(-1));
   on(els.downButton, 'click', () => moveSelectedRow(1));
   on(els.duplicateButton, 'click', duplicateSelectedRow);
@@ -181,7 +165,7 @@ function bindEvents() {
   document.querySelectorAll('.mode-tab').forEach(button => {
     button.addEventListener('click', () => {
       activeSummaryMode = button.dataset.mode;
-      document.querySelectorAll('.mode-tab').forEach(b => { b.classList.toggle('active', b === button); b.setAttribute('aria-pressed', String(b === button)); });
+      document.querySelectorAll('.mode-tab').forEach(b => b.classList.toggle('active', b === button));
       updateSummary();
     });
   });
@@ -230,11 +214,8 @@ function loadSelectedNormsToForm() {
     els.cateringPsiInput.value = String(getDefaultCateringPsi(els.consumerNameInput.value || type.name));
   }
   setNormInputs(option);
-  els.manualDetails.open = Boolean(option.isCustom);
   updateCateringPsiField();
   updateManualState();
-  captureEditorValues();
-  showFormError('');
 }
 
 function setNormInputs(option) {
@@ -259,15 +240,15 @@ function readNormInputs() {
   const base = cloneOption(getSelectedOption());
   base.unit = els.unitInput.value.trim() || base.unit;
   base.defaultHours = els.hoursInput.value.trim() || base.defaultHours;
-  base.totalDailyLiters = Calc.number(els.totalDailyInput.value);
-  base.hotDailyLiters = Calc.number(els.hotDailyInput.value);
-  base.totalPeakHourLiters = Calc.number(els.totalPeakInput.value);
-  base.hotPeakHourLiters = Calc.number(els.hotPeakInput.value);
-  base.totalDeviceLps = Calc.number(els.totalDeviceLpsInput.value);
-  base.totalDeviceHourlyLiters = Calc.number(els.totalDeviceHourlyInput.value);
-  base.branchDeviceLps = Calc.number(els.branchDeviceLpsInput.value);
-  base.branchDeviceHourlyLiters = Calc.number(els.branchDeviceHourlyInput.value);
-  base.isCustom = Boolean(getSelectedOption().isCustom || CalcNormFields.some(k => Calc.number(base[k]) !== Calc.number(getSelectedOption()[k])));
+  base.totalDailyLiters = toNum(els.totalDailyInput.value);
+  base.hotDailyLiters = toNum(els.hotDailyInput.value);
+  base.totalPeakHourLiters = toNum(els.totalPeakInput.value);
+  base.hotPeakHourLiters = toNum(els.hotPeakInput.value);
+  base.totalDeviceLps = toNum(els.totalDeviceLpsInput.value);
+  base.totalDeviceHourlyLiters = toNum(els.totalDeviceHourlyInput.value);
+  base.branchDeviceLps = toNum(els.branchDeviceLpsInput.value);
+  base.branchDeviceHourlyLiters = toNum(els.branchDeviceHourlyInput.value);
+  base.isCustom = base.isCustom || els.manualDetails.open;
   return base;
 }
 
@@ -276,133 +257,57 @@ function cloneOption(option) {
 }
 
 function addRowFromForm() {
-  try {
-    const row=buildRowFromForm();
-    rows.push(row); selectedRowId=row.id; showFormError(''); markEditorClean(); renderAll(); saveRowsToStorage(false);
-  } catch(error) { showFormError(error.message); }
+  const row = buildRowFromForm();
+  rows.push(row);
+  selectedRowId = row.id;
+  renderAll();
 }
 
 function buildRowFromForm() {
-  restoreEditorValues();
-  const type = getSelectedType(), option = readNormInputs();
-  const row = {id:makeId(),schemaVersion:3,include:true,catalogId:option.catalogId,
-    consumerTypeName:type.name,consumerName:els.consumerNameInput.value.trim()||type.name,
-    parameterName:option.name,parameterGroupName:option.groupName,unit:els.unitInput.value.trim()||option.unit,
-    uCount:cleanNumberString(els.countInput.value),usageHours:cleanNumberString(els.hoursInput.value),
-    cateringPsi:isCateringType(type.name)?cleanNumberString(els.cateringPsiInput.value):'',
-    selectedOption:option};
-  Calc.validate(row);
-  return row;
+  const type = getSelectedType();
+  const option = readNormInputs();
+  return {
+    id: makeId(),
+    include: true,
+    consumerTypeName: type.name,
+    consumerName: els.consumerNameInput.value.trim() || type.name,
+    parameterName: option.name || type.defaultParameter,
+    parameterGroupName: option.groupName || 'Параметры',
+    unit: els.unitInput.value.trim() || option.unit || type.unit || '',
+    uCount: cleanNumberString(els.countInput.value),
+    usageHours: cleanNumberString(els.hoursInput.value || option.defaultHours || type.defaultHours || ''),
+    cateringPsi: isCateringType(type.name)
+      ? cleanNumberString(els.cateringPsiInput?.value || getDefaultCateringPsi(els.consumerNameInput.value || type.name))
+      : '',
+    selectedOption: option
+  };
 }
 
 function applyFormToSelectedRow() {
-  const index=rows.findIndex(row=>row.id===selectedRowId);
-  if(index<0) return;
-  try {
-    const row=buildRowFromForm();
-    row.id=selectedRowId; row.include=rows[index].include; rows[index]=row;
-    showFormError(''); markEditorClean(); renderAll(); saveRowsToStorage(false);
-  } catch(error) { showFormError(error.message); }
-}
-
-function editorSnapshot() {
-  return editorValues ? JSON.stringify(editorValues) : null;
-}
-
-function captureEditorValues() {
-  if (!els.rowEditor) return;
-  editorValues = Object.fromEntries(Array.from(els.rowEditor.querySelectorAll('input, select'), input => [input.id, input.value]));
-}
-
-function recordEditorInput(event) {
-  // Only an explicit edit updates its field. Browser restoration must not mix
-  // unrelated select/norm values into the current consumer's draft.
-  const input = event.target;
-  if (!editorValues || !Object.hasOwn(editorValues, input.id)) return;
-  editorValues[input.id] = input.value;
-  showFormError('');
-  updateEditorState();
-}
-
-function restoreEditorValues() {
-  if (!editorValues || !els.rowEditor) return;
-  for (const input of els.rowEditor.querySelectorAll('input, select')) {
-    if (Object.hasOwn(editorValues, input.id)) input.value = editorValues[input.id];
-  }
-}
-
-function hasEditorChanges() {
-  return editorBaseline !== null && editorSnapshot() !== editorBaseline;
-}
-
-function markEditorClean() {
-  captureEditorValues();
-  editorBaseline = editorSnapshot();
-  updateEditorState();
-}
-
-function confirmDiscardEdits() {
-  return !hasEditorChanges() || confirm('Отменить неприменённые изменения строки?');
-}
-
-function requireAppliedEdits() {
-  if (!hasEditorChanges()) return true;
-  editorVisible = true;
-  editorExpanded = true;
+  if (!selectedRowId) return;
+  const index = rows.findIndex(row => row.id === selectedRowId);
+  if (index < 0) return;
+  const patched = buildRowFromForm();
+  patched.id = selectedRowId;
+  patched.include = rows[index].include;
+  rows[index] = patched;
   renderAll();
-  toast('Сначала примените изменения строки или нажмите «Отмена».');
-  (getSelectedRow() ? els.applyButton : els.addButton).focus();
-  return false;
-}
-
-function updateEditorState() {
-  if (!els.rowEditor) return;
-  const row = getSelectedRow();
-  $('editorTitle').textContent = row ? `Редактирование строки №${row.number}` : 'Новая строка';
-  $('editorStatus').textContent = hasEditorChanges() ? 'Изменения не применены' : '';
-  $('editorBody').hidden = !editorExpanded;
-  $('editorToggle').setAttribute('aria-expanded', String(editorExpanded));
-  els.addButton.hidden = Boolean(row);
-  els.applyButton.hidden = !row;
-}
-
-function prepareNewRow() {
-  selectedRowId = null;
-  els.countInput.value = '';
-  refreshParameterOptions();
-  editorVisible = true;
-  editorExpanded = true;
-  markEditorClean();
 }
 
 function resetForm() {
-  if (!confirmDiscardEdits()) return;
-  prepareNewRow();
+  selectedRowId = null;
+  els.countInput.value = '';
+  refreshParameterOptions();
   renderAll();
-  els.consumerTypeSelect.focus();
-}
-
-function cancelEditing() {
-  const row = getSelectedRow();
-  if (row) loadRowToForm(row);
-  else prepareNewRow();
-  markEditorClean();
-  editorVisible = false;
-  renderAll();
-  $('newRowButton').focus();
 }
 
 function duplicateSelectedRow() {
-  if (!confirmDiscardEdits()) return;
   const source = getSelectedRow();
   if (!source) return;
   const copy = JSON.parse(JSON.stringify(source));
   copy.id = makeId();
   rows.push(copy);
   selectedRowId = copy.id;
-  editorVisible = true;
-  editorExpanded = true;
-  loadRowToForm(copy);
   renderAll();
 }
 
@@ -420,10 +325,9 @@ function moveSelectedRow(direction) {
 }
 
 function deleteSelectedRow() {
-  if (!selectedRowId || !confirmDiscardEdits()) return;
+  if (!selectedRowId) return;
   rows = rows.filter(row => row.id !== selectedRowId);
-  prepareNewRow();
-  editorVisible = rows.length === 0;
+  selectedRowId = null;
   renderAll();
 }
 
@@ -431,7 +335,7 @@ function clearRows() {
   if (!rows.length) return;
   if (!confirm('Очистить все строки расчета?')) return;
   rows = [];
-  prepareNewRow();
+  selectedRowId = null;
   renderAll();
 }
 
@@ -445,15 +349,31 @@ function normalizeLoadedRows(value) {
 
 function normalizeRow(row, index) {
   const typeName = safe(row.consumerTypeName || row.typeName || row.type || row.consumerName);
-  const type = CONSUMER_CATALOG.find(t => t.name === typeName);
-  const name = row.parameterName || row.selectedOption?.name || row.parameter || type?.parameterOptions[0]?.name;
-  return Calc.migrate({...row, id: row.id || makeId(), number: index + 1, include: row.include !== false,
-    consumerTypeName: typeName, consumerName: row.consumerName || row.name || typeName,
-    parameterName: name, parameterGroupName: row.parameterGroupName || 'Параметры',
-    selectedOption: row.selectedOption || type?.parameterOptions.find(o=>o.name===name) || {},
-    uCount: row.uCount ?? row.count ?? row.u ?? '',
-    usageHours: row.usageHours ?? row.hours ?? type?.defaultHours ?? '',
-    cateringPsi: row.cateringPsi ?? (isCateringType(typeName) ? getDefaultCateringPsi(row.consumerName) : '')});
+  const type = CONSUMER_CATALOG.find(item => item.name === typeName) || CONSUMER_CATALOG[0];
+  const storedOption = row.selectedOption && typeof row.selectedOption === 'object' ? row.selectedOption : null;
+  const optionName = storedOption?.name || row.parameterName || row.parameter || type.parameterOptions?.[0]?.name || '';
+  const option = storedOption || type.parameterOptions.find(item => item.name === optionName) || type.parameterOptions[0] || {};
+
+  return {
+    id: row.id || makeId(),
+    include: row.include !== false,
+    number: index + 1,
+    consumerTypeName: row.consumerTypeName || type.name || '',
+    consumerName: row.consumerName || row.name || type.name || '',
+    parameterName: row.parameterName || option.name || type.defaultParameter || '',
+    parameterGroupName: row.parameterGroupName || option.groupName || 'Параметры',
+    unit: row.unit || option.unit || type.unit || '',
+    uCount: cleanNumberString(row.uCount ?? row.count ?? row.u ?? ''),
+    usageHours: cleanNumberString(row.usageHours ?? row.hours ?? option.defaultHours ?? type.defaultHours ?? ''),
+    cateringPsi: isCateringType(row.consumerTypeName || type.name)
+      ? cleanNumberString(row.cateringPsi ?? getDefaultCateringPsi(row.consumerName || row.name || type.name))
+      : '',
+    selectedOption: {
+      ...cloneOption(option),
+      unit: row.unit || option.unit || type.unit || '',
+      defaultHours: row.usageHours || option.defaultHours || type.defaultHours || ''
+    }
+  };
 }
 
 function getSelectedRow() {
@@ -470,9 +390,7 @@ function renderAll() {
   renderSelectedNormsPanel();
   updateDerivedReportFields();
   updateButtonsState();
-  updateEditorState();
   updateSummary();
-  saveRowsToStorage(false);
 }
 
 function renumberRows() {
@@ -481,37 +399,20 @@ function renumberRows() {
 
 function renderRowsTable() {
   const tbody = els.rowsTable.querySelector('tbody');
-  restoreEditorValues();
-  // Keep the form mounted. Reparenting it on each click/recalculation lets
-  // browser form restoration interfere with select and numeric input values.
-  if (!els.editorRow) {
-    const tr = document.createElement('tr');
-    tr.className = 'editor-row';
-    const td = document.createElement('td');
-    td.colSpan = 7;
-    td.appendChild(els.rowEditor);
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-    els.editorRow = tr;
-  }
-  els.editorRow.hidden = !editorVisible;
-  for (const child of Array.from(tbody.children)) {
-    if (child !== els.editorRow) child.remove();
-  }
-  let afterEditor = false;
+  tbody.innerHTML = '';
+
   rows.forEach(row => {
     const tr = document.createElement('tr');
-    tr.className = 'consumer-row';
     tr.classList.toggle('selected', row.id === selectedRowId);
-    const unit = isCateringRow(row) && String(row.unit || '').startsWith('1 условное блюдо') ? '1 условное блюдо' : row.unit;
     tr.innerHTML = `
-      <td class="center"><input type="checkbox" ${row.include ? 'checked' : ''} aria-label="Включить строку ${row.number} в расчёт" /></td>
+      <td class="center"><input type="checkbox" ${row.include ? 'checked' : ''} aria-label="Включить строку в расчет" title="Включить строку в расчет и отчет" /></td>
       <td class="num">${row.number}</td>
-      <td><button type="button" class="row-select" aria-label="Редактировать строку ${row.number}: ${escapeAttribute(row.consumerName)}">${escapeHtml(row.consumerName)}</button><div class="small-muted">${escapeHtml(row.consumerTypeName || '')}</div></td>
+      <td>${escapeHtml(row.consumerName)}<div class="small-muted">${escapeHtml(row.consumerTypeName || '')}</div></td>
       <td>${escapeHtml(row.parameterName || '')}</td>
       <td class="num">${formatRowUCell(row)}</td>
-      <td class="num">${row.usageHours === '' ? '—' : format(row.usageHours)}</td>
-      <td title="${escapeAttribute(row.unit || '')}">${escapeHtml(unit || '')}</td>`;
+      <td class="num">${escapeHtml(row.usageHours || '')}</td>
+      <td>${escapeHtml(row.unit || '')}</td>
+    `;
     tr.addEventListener('click', event => {
       if (event.target instanceof HTMLInputElement && event.target.type === 'checkbox') return;
       selectRow(row.id);
@@ -519,32 +420,15 @@ function renderRowsTable() {
     const checkbox = tr.querySelector('input[type="checkbox"]');
     checkbox.addEventListener('change', () => {
       row.include = checkbox.checked;
-      renderAll();
-      const current = els.rowsTable.querySelector(`input[aria-label="Включить строку ${row.number} в расчёт"]`);
-      if (current) current.focus();
+      renderSelectedNormsPanel();
+      updateSummary();
     });
-    if (afterEditor) tbody.appendChild(tr);
-    else tbody.insertBefore(tr, els.editorRow);
-    if (row.id === selectedRowId) afterEditor = true;
+    tbody.appendChild(tr);
   });
-  if (!rows.length) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="7" class="empty-table">Пока нет водопотребителей. Заполните новую строку и нажмите «Добавить».</td>';
-    tbody.insertBefore(tr, els.editorRow);
-  }
 }
 
 function selectRow(rowId) {
-  if (rowId === selectedRowId) {
-    editorVisible = true;
-    editorExpanded = true;
-    renderAll();
-    return;
-  }
-  if (!confirmDiscardEdits()) return;
   selectedRowId = rowId;
-  editorVisible = true;
-  editorExpanded = true;
   const row = getSelectedRow();
   if (row) loadRowToForm(row);
   renderAll();
@@ -571,8 +455,6 @@ function loadRowToForm(row) {
   els.unitInput.value = row.unit || '';
   setNormInputs(row.selectedOption || getSelectedOption());
   els.manualDetails.open = Boolean(row.selectedOption && row.selectedOption.isCustom);
-  markEditorClean();
-  showFormError(row.migrationNote || '');
 }
 
 function updateButtonsState() {
@@ -620,20 +502,43 @@ function renderSelectedNormsPanel() {
 
 function updateQuickTotals(reportRows) {
   if (!els.quickTotals) return;
-  const modes = [[WaterMode.COLD, 'ХВС'], [WaterMode.HOT, 'ГВС'], [WaterMode.TOTAL, 'Общая']];
-  const body = modes.map(([mode, title]) => {
-    try {
-      const data = reportRows.length ? calculateQuickModeTotals(reportRows, mode) : null;
-      return `<tr${mode === WaterMode.TOTAL ? ' class="total-row"' : ''}><th scope="row">${title}</th>${['totalQDay','totalQT','q','qhr'].map(key => `<td>${data ? format(data[key]) : '—'}</td>`).join('')}</tr>`;
-    } catch (e) {
-      return `<tr class="calculation-error"><th scope="row">${title}</th><td colspan="4">${escapeHtml(e.message)}</td></tr>`;
-    }
+  if (!reportRows.length) {
+    els.quickTotals.classList.add('empty');
+    els.quickTotals.innerHTML = 'Быстрые итоги появятся после добавления строк и включения их в расчет.';
+    return;
+  }
+
+  els.quickTotals.classList.remove('empty');
+  const modes = [
+    [WaterMode.COLD, 'ХВ'],
+    [WaterMode.HOT, 'ГВ'],
+    [WaterMode.TOTAL, 'Общая']
+  ];
+  const cards = modes.map(([mode, title]) => {
+    const data = calculateQuickModeTotals(reportRows, mode);
+    return `<div class="quick-card">
+      <h3>${title}</h3>
+      <div class="quick-line"><span>Q<sub>сут</sub></span><strong>${format(data.totalQDay)} м³/сут</strong></div>
+      <div class="quick-line"><span>Q<sub>ср.ч</sub></span><strong>${format(data.totalQT)} м³/ч</strong></div>
+      <div class="quick-line"><span>q</span><strong>${format(data.q)} л/с</strong></div>
+      <div class="quick-line"><span>q<sub>hr</sub></span><strong>${format(data.qhr)} м³/ч</strong></div>
+    </div>`;
   }).join('');
-  els.quickTotals.innerHTML = `<div class="totals-wrap"><table class="totals-table"><thead><tr><th scope="col">Вода</th><th scope="col">Суточный, м³/сут</th><th scope="col">Средний часовой, м³/ч</th><th scope="col">Максимальный, л/с</th><th scope="col">Максимальный часовой, м³/ч</th></tr></thead><tbody>${body}</tbody></table></div>`;
+
+  els.quickTotals.innerHTML = `<div class="quick-title">Быстрые итоги по отмеченным строкам</div><div class="quick-grid">${cards}</div><div class="quick-note">Полив и другие отдельные строки входят в Q<sub>сут</sub> и Q<sub>ср.ч</sub>, но не участвуют в NP / α / q / q<sub>hr</sub>.</div>`;
 }
 
 function calculateQuickModeTotals(reportRows, mode) {
-  return calculateReportTotals(reportRows.map(row => createReportLine(row, mode)));
+  const allLines = reportRows.map(row => createReportLine(row, mode));
+  const householdLines = allLines.filter(line => !line.isSpecial);
+  const specialLines = allLines.filter(line => line.isSpecial);
+  const householdTotals = calculateReportTotals(householdLines);
+  return {
+    totalQDay: householdTotals.totalQDay + sumBy(specialLines, line => line.qDay),
+    totalQT: householdTotals.totalQT + sumBy(specialLines, line => line.qT),
+    q: householdTotals.q,
+    qhr: householdTotals.qhr
+  };
 }
 
 function getRowsForReport() {
@@ -662,10 +567,7 @@ function buildSummaryText(reportRows, modeFilter = 'all') {
     ? [WaterMode.COLD, WaterMode.HOT, WaterMode.TOTAL]
     : [modeFilter === 'cold' ? WaterMode.COLD : modeFilter === 'hot' ? WaterMode.HOT : WaterMode.TOTAL];
 
-  modes.forEach(mode => {
-    try { appendModeSummary(lines, reportRows, mode); }
-    catch (e) { lines.push('РАСЧЁТ НЕ ЗАВЕРШЁН: '+e.message); }
-  });
+  modes.forEach(mode => appendModeSummary(lines, reportRows, mode));
   return lines.join('\n');
 }
 
@@ -678,7 +580,7 @@ function appendModeSummary(lines, reportRows, mode) {
   const specialLines = allLines.filter(line => line.isSpecial);
 
   allLines.forEach((line, index) => {
-    lines.push(`${index + 1}. ${safe(line.name)}${line.isSpecial ? ' — отдельная строка' : ''}`);
+    lines.push(`${index + 1}. ${safe(line.name)}${line.isSpecial ? ' — отдельная строка, не входит в NP/α/q' : ''}`);
     if (line.isCatering) {
       lines.push(`   Uсут = ${format(line.uDay)} блюд/сут; Uчас = ${format(line.uHour)} блюд/ч; T = ${format(line.t)} ч; ψ = ${format(line.cateringPsi)}`);
     } else {
@@ -710,21 +612,73 @@ function appendModeSummary(lines, reportRows, mode) {
   lines.push('');
 
   if (specialLines.length) {
-    const finalTotals = calculateReportTotals(allLines);
     lines.push('ИТОГО с отдельными строками типа полива:');
     lines.push(`Qсут = ${format(householdTotals.totalQDay + specialQDay)} м³/сут`);
     lines.push(`Qч,ср = ${format(householdTotals.totalQT + specialQT)} м³/ч`);
-    lines.push(`q = ${format(finalTotals.q)} л/с; qhr = ${format(finalTotals.qhr)} м³/ч`);
+    lines.push(`q = ${format(householdTotals.q)} л/с; qhr = ${format(householdTotals.qhr)} м³/ч`);
     lines.push('');
   }
 }
 
 function getNorms(option, mode) {
-  return Calc.norms({selectedOption:option}, mode);
+  option = option || {};
+  const totalDaily = toNum(option.totalDailyLiters);
+  const hotDaily = toNum(option.hotDailyLiters);
+  const totalPeak = toNum(option.totalPeakHourLiters);
+  const hotPeak = toNum(option.hotPeakHourLiters);
+  const totalDeviceLps = toNum(option.totalDeviceLps);
+  const totalDeviceHourly = toNum(option.totalDeviceHourlyLiters);
+  const branchDeviceLps = toNum(option.branchDeviceLps);
+  const branchDeviceHourly = toNum(option.branchDeviceHourlyLiters);
+
+  if (mode === WaterMode.TOTAL) {
+    return {
+      dailyLiters: totalDaily,
+      peakHourLiters: totalPeak,
+      deviceLps: totalDeviceLps,
+      deviceHourlyLiters: totalDeviceHourly
+    };
+  }
+
+  if (mode === WaterMode.HOT) {
+    const hasHot = hotDaily > 0 || hotPeak > 0;
+    return {
+      dailyLiters: hotDaily,
+      peakHourLiters: hotPeak,
+      deviceLps: hasHot ? branchDeviceLps : 0,
+      deviceHourlyLiters: hasHot ? branchDeviceHourly : 0
+    };
+  }
+
+  const coldDaily = Math.max(0, totalDaily - hotDaily);
+  const coldPeak = Math.max(0, totalPeak - hotPeak);
+  const coldDeviceLps = branchDeviceLps > 0 ? branchDeviceLps : totalDeviceLps;
+  const coldDeviceHourly = branchDeviceHourly > 0 ? branchDeviceHourly : totalDeviceHourly;
+  const hasCold = coldDaily > 0 || coldPeak > 0;
+  return {
+    dailyLiters: coldDaily,
+    peakHourLiters: coldPeak,
+    deviceLps: hasCold ? coldDeviceLps : 0,
+    deviceHourlyLiters: hasCold ? coldDeviceHourly : 0
+  };
 }
 
-function lookupAlpha(np, n) {
-  return Calc.alpha(np, n).value;
+function lookupAlpha(x) {
+  const value = toNum(x);
+  if (value < 0.015) return 0.2;
+  const points = ALPHA_POINTS;
+  for (const [px, py] of points) {
+    if (Math.abs(value - px) < 1e-7) return py;
+  }
+  for (let i = 1; i < points.length; i += 1) {
+    const left = points[i - 1];
+    const right = points[i];
+    if (value <= right[0]) {
+      const t = (value - left[0]) / (right[0] - left[0]);
+      return left[1] + (right[1] - left[1]) * t;
+    }
+  }
+  return points[points.length - 1][1];
 }
 
 function isCateringType(typeName) {
@@ -761,9 +715,12 @@ function formatUForReport(line, plainText = false) {
 }
 
 function formatRowUCell(row) {
-  if (row.uCount === '') return '—';
-  if (!isCateringRow(row)) return format(row.uCount);
-  return `${format(row.uCount)} / ${format(getHourlyUCountValue(row))}`;
+  const uDay = getUCountValue(row);
+  if (!isCateringRow(row)) return escapeHtml(row.uCount || '');
+  const t = getUsageHoursValue(row);
+  const psi = getCateringPsiValue(row);
+  const uHour = getHourlyUCountValue(row, uDay, t, psi);
+  return `${escapeHtml(row.uCount || '')}<div class="small-muted">час: ${escapeHtml(format(uHour))} · ψ=${escapeHtml(format(psi))}</div>`;
 }
 
 function updateCateringPsiField() {
@@ -771,17 +728,15 @@ function updateCateringPsiField() {
   const type = getSelectedType();
   const active = isCateringType(type?.name);
   els.cateringPsiField.hidden = !active;
-  els.cateringPsiField.parentElement.classList.toggle('has-catering', active);
-  const kind = getSelectedOption()?.calculationKind;
-  $('countLabel').textContent = active ? 'Блюд в сутки' : kind === 'pool' ? 'Объём, м³' : ['irrigation','ice'].includes(kind) ? 'Площадь F, м²' : 'Количество U';
-  $('hoursLabel').textContent = kind === 'irrigation' ? 'Поливок в сутки' : 'T, ч';
   if (active && !(toNum(els.cateringPsiInput.value) > 0)) {
     els.cateringPsiInput.value = String(getDefaultCateringPsi(els.consumerNameInput?.value || type?.name));
   }
 }
 
 function isAreaBasedRow(row) {
-  return Calc.kind(row) !== 'standard';
+  const dimension = (row.unit || '').toLowerCase();
+  const name = (row.consumerName || '').toLowerCase();
+  return dimension.includes('м²') || dimension.includes('м2') || name.includes('полив') || name.includes('катка');
 }
 
 function getUCountValue(row) {
@@ -793,7 +748,6 @@ function getUsageHoursValue(row) {
 }
 
 async function printReport() {
-  if (!validateForExport()) return;
   const reportRows = getRowsForReport();
   const variant = getSelectedReportVariant();
 
@@ -861,7 +815,6 @@ async function printReport() {
 }
 
 async function downloadWordReport() {
-  if (!validateForExport()) return;
   const reportRows = getRowsForReport();
   const variant = getSelectedReportVariant();
 
@@ -877,14 +830,17 @@ async function downloadWordReport() {
 }
 
 async function downloadFormattedDocxReport(reportRows, options = {}) {
-  if (!validateForExport()) return;
   try {
     if (!window.JSZip) {
       alert('Не удалось загрузить модуль формирования DOCX. Проверь подключение к интернету и обнови страницу.');
       return;
     }
 
-    const zip = await JSZip.loadAsync(REPORT_TEMPLATE_BASE64, {base64:true});
+    const response = await fetch('templates/formatted-report-template.docx', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Template fetch failed: ${response.status}`);
+
+    const templateBuffer = await response.arrayBuffer();
+    const zip = await JSZip.loadAsync(templateBuffer);
     const documentFile = zip.file('word/document.xml');
     if (!documentFile) throw new Error('В шаблоне не найден word/document.xml');
 
@@ -928,7 +884,7 @@ function fillFormattedDocxTemplate(xmlDoc, reportRows) {
     '{floors}': safe(meta.floors || ''),
     '{internalFireFlow}': safe(meta.internalFireFlow || ''),
     '{internalFireDescription}': safe(meta.internalFireDescription || ''),
-    '{autoFireFlow}': safe(meta.autoFireFlow || 'не задано'),
+    '{autoFireFlow}': safe(meta.autoFireFlow || '30'),
     '{outdoorFireFlow}': safe(meta.outdoorFireFlow || ''),
     '{engineerPosition}': safe(meta.engineerPosition || ''),
     '{engineerDate}': safe(meta.engineerDate || ''),
@@ -937,7 +893,170 @@ function fillFormattedDocxTemplate(xmlDoc, reportRows) {
 
   replaceTextTokensInDocument(xmlDoc, values);
   fillFormattedDocxTables(xmlDoc, reportRows);
-  replaceDocxNarrative(xmlDoc, reportRows, meta);
+}
+
+function fillFormattedDocxTemplateXml(xmlText, reportRows) {
+  const meta = getReportMeta();
+  let xml = xmlText;
+  const values = {
+    '{objectName}': safe(meta.objectName || 'Наименование'),
+    '{residents}': safe(meta.residents || calculateResidentsForReport()),
+    '{floors}': safe(meta.floors || ''),
+    '{internalFireFlow}': safe(meta.internalFireFlow || ''),
+    '{internalFireDescription}': safe(meta.internalFireDescription || ''),
+    '{autoFireFlow}': safe(meta.autoFireFlow || '30'),
+    '{outdoorFireFlow}': safe(meta.outdoorFireFlow || ''),
+    '{engineerPosition}': safe(meta.engineerPosition || ''),
+    '{engineerDate}': safe(meta.engineerDate || ''),
+    '{engineerName}': safe(meta.engineerName || '')
+  };
+
+  Object.entries(values).forEach(([token, value]) => {
+    xml = replaceAllLiteral(xml, token, escapeXmlText(value));
+  });
+
+  xml = replaceFormattedDocxTablesInXml(xml, reportRows);
+  return xml;
+}
+
+function replaceFormattedDocxTablesInXml(xml, reportRows) {
+  return xml.replace(/<w:tbl[\s\S]*?<\/w:tbl>/g, tableXml => {
+    if (tableXml.includes('Расчет расходов холодной воды')) {
+      return fillFormattedDocxReportTableXml(tableXml, reportRows, WaterMode.COLD);
+    }
+    if (tableXml.includes('Расчет расходов горячей воды')) {
+      return fillFormattedDocxReportTableXml(tableXml, reportRows, WaterMode.HOT);
+    }
+    if (tableXml.includes('Расчет расходов воды общий')) {
+      return fillFormattedDocxReportTableXml(tableXml, reportRows, WaterMode.TOTAL);
+    }
+    return tableXml;
+  });
+}
+
+function fillFormattedDocxReportTableXml(tableXml, reportRows, mode) {
+  const allLines = reportRows.map(row => createReportLine(row, mode));
+  const householdLines = allLines.filter(line => !line.isSpecial);
+  const specialLines = allLines.filter(line => line.isSpecial);
+  const householdTotals = calculateReportTotals(householdLines);
+  const specialQDay = sumBy(specialLines, line => line.qDay);
+  const specialQT = sumBy(specialLines, line => line.qT);
+
+  const householdRows = (householdLines.length ? householdLines : [createEmptyReportLine('Нет данных')])
+    .map(line => buildFormattedDocxDataRowXml(tableXml, '{Строка хозяйственно-питьевых нужд}', line, false))
+    .join('');
+  tableXml = replaceDocxRowsContaining(tableXml, '{Строка хозяйственно-питьевых нужд}', householdRows);
+
+  tableXml = transformDocxRowContaining(tableXml, 'q₀={q0}', rowXml => replaceDocxTokensInXml(rowXml, {
+    '{q0}': format(householdTotals.q0Eq),
+    '{q0,hr}': format(householdTotals.q0hrEq)
+  }));
+
+  tableXml = transformDocxRowContaining(tableXml, 'Итог - хозяйственно-питьевые нужды', rowXml => replaceDocxTokensInXml(rowXml, {
+    '{Qсут}': format(householdTotals.totalQDay),
+    '{qhr,u·U}': format(householdTotals.totalPeakLh),
+    '{qT}': format(householdTotals.totalQT),
+    '{NP}': format(householdTotals.totalNp),
+    '{NPhr}': format(householdTotals.totalNphr),
+    '{α}': format(householdTotals.alpha),
+    '{αhr}': format(householdTotals.alphaHr),
+    '{q}': format(householdTotals.q),
+    '{qhr}': format(householdTotals.qhr)
+  }));
+
+  const specialRows = specialLines
+    .map(line => buildFormattedDocxDataRowXml(tableXml, '{Поливка / спец. строка}', line, true))
+    .join('');
+  tableXml = replaceDocxRowsContaining(tableXml, '{Поливка / спец. строка}', specialRows);
+
+  tableXml = transformDocxFinalTotalRow(tableXml, rowXml => replaceDocxTokensInXml(rowXml, {
+    '{Qсут}': format(householdTotals.totalQDay + specialQDay),
+    '{qhr,u·U}': '-',
+    '{qT}': format(householdTotals.totalQT + specialQT),
+    '{NP}': '-',
+    '{NPhr}': '-',
+    '{α}': '-',
+    '{αhr}': '-',
+    '{q}': format(householdTotals.q),
+    '{qhr}': format(householdTotals.qhr)
+  }));
+
+  return tableXml;
+}
+
+function buildFormattedDocxDataRowXml(tableXml, token, line, specialMode) {
+  const templateRow = findDocxRowContaining(tableXml, token);
+  if (!templateRow) return '';
+  const dash = '-';
+  const specialValue = value => specialMode && Math.abs(toNum(value)) < 1e-7 ? dash : format(value);
+  return replaceDocxTokensInXml(templateRow, {
+    '{Строка хозяйственно-питьевых нужд}': safe(line.name),
+    '{Поливка / спец. строка}': safe(line.name),
+    '{U/F}': formatUForReport(line, true),
+    '{q_u}': specialValue(line.qum),
+    '{q_hr,u}': specialValue(line.qhru),
+    '{q0,hr}': specialValue(line.q0hr),
+    '{q0}': specialValue(line.q0),
+    '{Qсут}': specialValue(line.qDay),
+    '{qhr,u·U}': specialValue(line.qPeakLh),
+    '{qT}': specialValue(line.qT),
+    '{NP}': specialMode ? dash : format(line.np),
+    '{NPhr}': specialMode ? dash : format(line.nphr),
+    '{α}': '',
+    '{αhr}': '',
+    '{q}': '',
+    '{qhr}': ''
+  });
+}
+
+function findDocxRowContaining(xml, marker) {
+  const rows = xml.match(/<w:tr[\s\S]*?<\/w:tr>/g) || [];
+  return rows.find(rowXml => rowXml.includes(marker)) || '';
+}
+
+function replaceDocxRowsContaining(xml, marker, replacementRowsXml) {
+  return xml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, rowXml => rowXml.includes(marker) ? replacementRowsXml : rowXml);
+}
+
+function transformDocxRowContaining(xml, marker, transform) {
+  let done = false;
+  return xml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, rowXml => {
+    if (!done && rowXml.includes(marker)) {
+      done = true;
+      return transform(rowXml);
+    }
+    return rowXml;
+  });
+}
+
+function transformDocxFinalTotalRow(xml, transform) {
+  let done = false;
+  return xml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, rowXml => {
+    if (!done && rowXml.includes('Итог:') && rowXml.includes('{Qсут}')) {
+      done = true;
+      return transform(rowXml);
+    }
+    return rowXml;
+  });
+}
+
+function replaceDocxTokensInXml(xml, tokenMap) {
+  let result = xml;
+  Object.entries(tokenMap).forEach(([token, value]) => {
+    result = replaceAllLiteral(result, token, escapeXmlText(value));
+  });
+  return result;
+}
+
+function replaceAllLiteral(text, search, replacement) {
+  return String(text).split(search).join(String(replacement));
+}
+
+function escapeXmlText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function replaceTextTokensInDocument(xmlDoc, tokenMap) {
@@ -972,7 +1091,6 @@ function fillFormattedDocxReportTable(table, reportRows, mode) {
   const householdLines = allLines.filter(line => !line.isSpecial);
   const specialLines = allLines.filter(line => line.isSpecial);
   const householdTotals = calculateReportTotals(householdLines);
-  const finalTotals = calculateReportTotals(allLines);
   const specialQDay = sumBy(specialLines, line => line.qDay);
   const specialQT = sumBy(specialLines, line => line.qT);
 
@@ -1032,8 +1150,8 @@ function fillFormattedDocxReportTable(table, reportRows, mode) {
     setDocxCellTextByVisualIndex(finalTotalRow, 10, '-');
     setDocxCellTextByVisualIndex(finalTotalRow, 11, '-');
     setDocxCellTextByVisualIndex(finalTotalRow, 12, '-');
-    setDocxCellTextByVisualIndex(finalTotalRow, 13, format(finalTotals.q));
-    setDocxCellTextByVisualIndex(finalTotalRow, 14, format(finalTotals.qhr));
+    setDocxCellTextByVisualIndex(finalTotalRow, 13, format(householdTotals.q));
+    setDocxCellTextByVisualIndex(finalTotalRow, 14, format(householdTotals.qhr));
   }
 }
 
@@ -1076,8 +1194,8 @@ function populateDocxDataRow(row, line, specialMode) {
     specialMode ? dash : format(line.nphr),
     '',
     '',
-    line.kind === 'showers' ? format(line.directQ) : '',
-    line.kind === 'showers' ? format(line.directQhr) : ''
+    '',
+    ''
   ];
   values.forEach((value, index) => setDocxCellTextByVisualIndex(row, index, value));
 }
@@ -1170,7 +1288,7 @@ function splitBase64(value) {
 }
 
 function getSelectedReportVariant() {
-  return els.reportVariantSelect?.value === 'draft' ? 'draft' : 'formatted';
+  return els.reportVariantSelect?.value === 'formatted' ? 'formatted' : 'draft';
 }
 
 function buildReportDocumentHtml(reportRows, forWord, variant = 'draft') {
@@ -1179,7 +1297,7 @@ function buildReportDocumentHtml(reportRows, forWord, variant = 'draft') {
     hour: '2-digit', minute: '2-digit'
   });
   const meta = getReportMeta();
-  const title = variant === 'formatted' ? 'Предварительный расчет водопотребления' : 'Отчет по расчету водопотребления';
+  const title = variant === 'formatted' ? 'Предварительный расчет водопотребления и водоотведения' : 'Отчет по расчету водопотребления';
   const sectionClass = variant === 'formatted' ? 'FormattedSection' : 'DraftSection';
   const content = variant === 'formatted'
     ? buildFormattedReportContent(reportRows, meta, forWord)
@@ -1211,7 +1329,7 @@ function buildFormattedReportContent(reportRows, meta, forWord = false) {
   const logoSrc = forWord ? 'effect-logo.png' : EFFECT_LOGO_DATA_URI;
   return `
     ${buildCompanyHeaderBlock(logoSrc)}
-    <h1 class="formatted-report-title">Предварительный расчет водопотребления.<br>Объект: «${escapeHtml(meta.objectName)}»</h1>
+    <h1 class="formatted-report-title">Предварительный расчет водопотребления и водоотведения.<br>Объект: «${escapeHtml(meta.objectName)}»</h1>
     ${buildFormattedReportTable(reportRows)}
     ${buildReportFooter(meta)}
   `;
@@ -1235,7 +1353,38 @@ function buildCompanyHeaderBlock(logoSrc) {
 }
 
 function buildReportFooter(meta) {
-  return '<div class="report-footer-text">'+footerLines(meta).map(t=>`<p>${escapeHtml(t)}</p>`).join('')+'</div>';
+  const residentsText = safe(meta.residents);
+  const floorsText = safe(meta.floors);
+  const internalFlow = safe(meta.internalFireFlow);
+  const internalDescription = safe(meta.internalFireDescription);
+  const autoFlow = safe(meta.autoFireFlow);
+  const outdoorFlow = safe(meta.outdoorFireFlow);
+  const internalText = internalFlow === '0' || internalFlow === '—'
+    ? 'Максимальный расход воды на внутреннее пожаротушение по выбранным параметрам не учитывается.'
+    : `Максимальный расход воды на внутреннее пожаротушение определен в соответствии с СП 10.13130.2020 и составляет не менее ${escapeHtml(internalFlow)} л/с (${escapeHtml(internalDescription)}).`;
+  const outdoorText = outdoorFlow === '—'
+    ? 'Максимальный расход воды на наружное пожаротушение по заданной этажности и строительному объему требует ручной проверки по СП 8.13130.2020.'
+    : `Максимальный расход воды на наружное пожаротушение определен в соответствии с СП 8.13130.2020 и составляет ${escapeHtml(outdoorFlow)} л/с.`;
+
+  return `
+    <div class="report-footer-text">
+      <p>Расчёт выполнен в соответствии с СП 30.13330.2020.</p>
+      <p>Количество проживающих в квартире жилого многоквартирного дома для определения расчётных расходов воды принято по формуле:</p>
+      <p class="formula-line">N<sub>кв.жит.</sub> = К+1</p>
+      <p>где N<sub>кв.жит.</sub> – расчетное количество жителей в квартире; К – количество жилых комнат в квартире.</p>
+      <p>Расчет выполнен для ${escapeHtml(residentsText)} жителей, этажность жилого дома – ${escapeHtml(floorsText)} этажей.</p>
+      <p>${internalText}</p>
+      <p>Максимальный расход воды на автоматическое пожаротушение определен в соответствии с СП 485.1311500.2020 и составляет не менее ${escapeHtml(autoFlow)} л/с.</p>
+      <p>${outdoorText}</p>
+      <table class="signature-table"><tr>
+        <td>${escapeHtml(meta.engineerPosition)}</td>
+        <td>${escapeHtml(meta.engineerName)}</td>
+      </tr><tr>
+        <td>${escapeHtml(meta.engineerDate)}</td>
+        <td></td>
+      </tr></table>
+    </div>
+  `;
 }
 
 function buildReportStyles(variant = 'draft') {
@@ -1360,7 +1509,7 @@ function buildReportTableHeader() {
       <th>q<sup>c</sup><sub>hr,u</sub><br>q<sup>h</sup><sub>hr,u</sub><br>л/ч</th>
       <th>q<sup>c</sup><sub>0,hr</sub><br>q<sup>h</sup><sub>0,hr</sub><br>л/ч</th>
       <th>q<sup>c</sup><sub>0</sub><br>q<sup>h</sup><sub>0</sub><br>л/с</th>
-      <th>q<sup>c</sup><sub>u</sub> · U<br>1000<br>q<sup>h</sup><sub>u</sub> · U<br>1000<br>м³/сут</th>
+      <th>q<sup>c</sup><sub>0</sub> · U<br>1000<br>q<sup>h</sup><sub>u</sub> · U<br>1000<br>м³/сут</th>
       <th>q<sup>c</sup><sub>hr</sub> · U<br>q<sup>h</sup><sub>hr</sub> · U<br>л/ч</th>
       <th>q<sup>c</sup><sub>T</sub><br>q<sup>h</sup><sub>T</sub><br>м³/ч</th>
     </tr>
@@ -1382,7 +1531,6 @@ function buildReportSection(reportRows, mode, title) {
   householdLines.forEach(line => sectionRows.push(buildReportDataRow(line, false)));
 
   const householdTotals = calculateReportTotals(householdLines);
-  const finalTotals = calculateReportTotals(allLines);
   sectionRows.push(`<tr>
     <td colspan="13" class="left"></td>
     <td>q<sub>0</sub>=${format(householdTotals.q0Eq)}</td>
@@ -1415,8 +1563,8 @@ function buildReportSection(reportRows, mode, title) {
     <td>-</td>
     <td>-</td>
     <td>-</td>
-    <td>${format(finalTotals.q)}</td>
-    <td>${format(finalTotals.qhr)}</td>
+    <td>${format(householdTotals.q)}</td>
+    <td>${format(householdTotals.qhr)}</td>
   </tr>`);
 
   return sectionRows.join('');
@@ -1446,17 +1594,68 @@ function buildReportDataRow(line, specialMode) {
     <td>${nphr}</td>
     <td></td>
     <td></td>
-    <td>${line.kind==='showers'?format(line.directQ):''}</td>
-    <td>${line.kind==='showers'?format(line.directQhr):''}</td>
+    <td></td>
+    <td></td>
   </tr>`;
 }
 
 function createReportLine(row, mode) {
-  return Calc.line(row, mode);
+  const norms = getNorms(row.selectedOption, mode);
+  const uDay = getUCountValue(row);
+  const t = getUsageHoursValue(row);
+  const catering = isCateringRow(row);
+  const cateringPsi = catering ? getCateringPsiValue(row) : 0;
+  const uHour = getHourlyUCountValue(row, uDay, t, cateringPsi);
+  const special = isAreaBasedRow(row);
+
+  // Для общепита нормативы таблицы А.2 имеют одинаковую размерность на условное блюдо,
+  // но число блюд за сутки и в час наибольшего водопотребления различается.
+  // Поэтому суточный расход считаем по Uсут, а q_hr,u·U, NP и NPhr — по Uчас.
+  const qDay = norms.dailyLiters * uDay / 1000;
+  const qPeakLh = norms.peakHourLiters * uHour;
+  const qT = special
+    ? (mode === WaterMode.COLD && qDay > 0 ? qDay / 24 : 0)
+    : (t > 0 ? qDay / t : 0);
+  const np = norms.deviceLps > 0 ? qPeakLh / (norms.deviceLps * 3600) : 0;
+  const nphr = norms.deviceHourlyLiters > 0 ? qPeakLh / norms.deviceHourlyLiters : 0;
+
+  return {
+    name: row.consumerName || row.consumerTypeName || '-',
+    isSpecial: special,
+    isCatering: catering,
+    u: uDay,
+    uDay,
+    uHour,
+    t,
+    cateringPsi,
+    qum: norms.dailyLiters,
+    qhru: special ? 0 : norms.peakHourLiters,
+    q0hr: special ? 0 : norms.deviceHourlyLiters,
+    q0: special ? 0 : norms.deviceLps,
+    qDay,
+    qPeakLh: special ? 0 : qPeakLh,
+    qT,
+    np: special ? 0 : np,
+    nphr: special ? 0 : nphr
+  };
 }
 
 function calculateReportTotals(lines) {
-  return Calc.totals(lines);
+  const totalQDay = sumBy(lines, line => line.qDay);
+  const totalPeakLh = sumBy(lines, line => line.qPeakLh);
+  const totalQT = sumBy(lines, line => line.qT);
+  const totalNp = sumBy(lines, line => line.np);
+  const totalNphr = sumBy(lines, line => line.nphr);
+  const q0EqRaw = totalNp > 0 ? totalPeakLh / (3600 * totalNp) : 0;
+  const q0hrEqRaw = totalNphr > 0 ? totalPeakLh / totalNphr : 0;
+  const q0Eq = roundTo(q0EqRaw, 2);
+  const q0hrEq = roundTo(q0hrEqRaw, 2);
+  const alpha = lookupAlpha(totalNp);
+  const alphaHr = lookupAlpha(totalNphr);
+  const q = 5 * q0Eq * alpha;
+  const qhr = 0.005 * q0hrEq * alphaHr;
+
+  return { totalQDay, totalPeakLh, totalQT, totalNp, totalNphr, q0Eq, q0hrEq, alpha, alphaHr, q, qhr };
 }
 
 function sumBy(items, selector) {
@@ -1469,7 +1668,6 @@ function roundTo(value, decimals) {
 }
 
 async function copySummary() {
-  if (!requireAppliedEdits()) return;
   try {
     await navigator.clipboard.writeText(els.summaryOutput.textContent || '');
     toast('Свод скопирован.');
@@ -1479,14 +1677,9 @@ async function copySummary() {
 }
 
 function saveRowsToStorage(showMessage) {
-  try {
-    localStorage.setItem(AUTO_DRAFT_KEY, JSON.stringify(rows));
-    saveReportMetaToStorage(false);
-    if (showMessage) toast('Текущий черновик сохранен автоматически в браузере.');
-  } catch (error) {
-    console.error(error);
-    toast('Не удалось сохранить черновик: хранилище браузера недоступно или заполнено.');
-  }
+  localStorage.setItem(AUTO_DRAFT_KEY, JSON.stringify(rows));
+  saveReportMetaToStorage(false);
+  if (showMessage) toast('Текущий черновик сохранен автоматически в браузере.');
 }
 
 function loadRowsFromStorage(showMessage) {
@@ -1497,9 +1690,6 @@ function loadRowsFromStorage(showMessage) {
   }
   try {
     const loaded = JSON.parse(raw);
-    if (Array.isArray(loaded) && loaded.some(row => row.schemaVersion !== 3) && !localStorage.getItem(AUTO_DRAFT_KEY+'-before-v3')) {
-      localStorage.setItem(AUTO_DRAFT_KEY+'-before-v3', raw);
-    }
     rows = normalizeLoadedRows(loaded);
     selectedRowId = rows[0]?.id || null;
     renderAll();
@@ -1507,8 +1697,9 @@ function loadRowsFromStorage(showMessage) {
   } catch (error) {
     rows = [];
     selectedRowId = null;
-    try { localStorage.setItem(AUTO_DRAFT_KEY+'-unreadable-backup',raw); } catch {}
-    alert('Не удалось прочитать автоматический черновик. Его исходные данные сохранены в резервном ключе хранилища браузера, если оно доступно.');
+    localStorage.removeItem(AUTO_DRAFT_KEY);
+    renderAll();
+    if (showMessage) alert('Не удалось прочитать автоматический черновик. Черновик сброшен.');
     console.error(error);
   }
 }
@@ -1518,7 +1709,6 @@ function clearAutoSave() {
 }
 
 function openSaveCalculationDialog() {
-  if (!requireAppliedEdits()) return;
   if (!rows.length) {
     toast('Сначала добавь хотя бы одну строку расчета.');
     return;
@@ -1632,7 +1822,6 @@ function loadSelectedSavedCalculation() {
 }
 
 function loadSavedCalculation(id) {
-  if (!confirmDiscardEdits()) return;
   const calculations = getSavedCalculations();
   const item = calculations.find(calc => calc.id === id);
   if (!item) {
@@ -1643,10 +1832,6 @@ function loadSavedCalculation(id) {
   rows = normalizeLoadedRows(item.rows || []);
   setReportMetaInputs(item.reportMeta || loadReportMetaFromStorage(true));
   selectedRowId = rows[0]?.id || null;
-  if (getSelectedRow()) loadRowToForm(getSelectedRow());
-  else prepareNewRow();
-  editorVisible = true;
-  editorExpanded = true;
   renderAll();
   saveRowsToStorage(false);
   if (els.loadDialog) els.loadDialog.close();
@@ -1687,41 +1872,83 @@ function formatSavedDate(value) {
 }
 
 function getReportMeta() {
-  const raw={schemaVersion:'2'};
-  for(const key of Object.keys(DEFAULT_REPORT_META)) {
-    const input=$(key+'Input');
-    if(input) raw[key]=input.type==='checkbox'?String(input.checked):input.value;
-  }
-  return {...normalizeReportMeta(raw),...calculateDerivedReportMeta()};
+  const raw = {
+    objectName: els.objectNameInput?.value,
+    residents: els.residentsInput?.value,
+    floors: els.floorsInput?.value,
+    internalFireRule: els.internalFireRuleSelect?.value,
+    longCorridor: els.longCorridorInput?.checked ? 'true' : 'false',
+    internalFireFlow: els.internalFireFlowInput?.value,
+    internalFireDescription: els.internalFireDescriptionInput?.value,
+    autoFireFlow: els.autoFireFlowInput?.value,
+    outdoorFireClass: els.outdoorFireClassSelect?.value,
+    buildingVolume: els.buildingVolumeInput?.value,
+    outdoorFireFlow: els.outdoorFireFlowInput?.value,
+    engineerPosition: els.engineerPositionInput?.value,
+    engineerDate: els.engineerDateInput?.value,
+    engineerName: els.engineerNameInput?.value
+  };
+  const meta = normalizeReportMeta(raw);
+  const derived = calculateDerivedReportMeta(meta);
+  return { ...meta, ...derived };
 }
 
 function setReportMetaInputs(meta) {
-  const normalized=normalizeReportMeta(meta);
-  for(const key of Object.keys(DEFAULT_REPORT_META)) {
-    const input=$(key+'Input');
-    if(input) {if(input.type==='checkbox') input.checked=normalized[key]==='true'; else input.value=normalized[key];}
-  }
+  const normalized = normalizeReportMeta(meta);
+  if (els.objectNameInput) els.objectNameInput.value = normalized.objectName;
+  if (els.floorsInput) els.floorsInput.value = normalized.floors;
+  if (els.internalFireRuleSelect) els.internalFireRuleSelect.value = normalized.internalFireRule;
+  if (els.longCorridorInput) els.longCorridorInput.checked = normalized.longCorridor !== 'false';
+  if (els.outdoorFireClassSelect) els.outdoorFireClassSelect.value = normalized.outdoorFireClass;
+  if (els.buildingVolumeInput) els.buildingVolumeInput.value = normalized.buildingVolume;
+  if (els.engineerPositionInput) els.engineerPositionInput.value = normalized.engineerPosition;
+  if (els.engineerDateInput) els.engineerDateInput.value = normalized.engineerDate;
+  if (els.engineerNameInput) els.engineerNameInput.value = normalized.engineerName;
   updateDerivedReportFields();
+  saveReportMetaToStorage(false);
 }
 
 function normalizeReportMeta(meta) {
-  const source=meta&&typeof meta==='object'?meta:{};
-  const result={...DEFAULT_REPORT_META};
-  for(const key of Object.keys(result)) if(source[key]!=null) result[key]=String(source[key]).trim();
-  if(source.schemaVersion!=='2') {
-    // Old values were generated from incomplete fire rules, including a hardcoded 30 l/s.
-    for(const key of ['internalFireFlow','internalFireDescription','autoFireFlow','autoFireBasis','outdoorFireFlow','outdoorFireBasis']) result[key]='';
-  }
-  result.schemaVersion='2';
+  const source = meta && typeof meta === 'object' ? meta : {};
+  const result = {};
+  Object.keys(DEFAULT_REPORT_META).forEach(key => {
+    const value = source[key];
+    result[key] = value === null || value === undefined || String(value).trim() === ''
+      ? DEFAULT_REPORT_META[key]
+      : String(value).trim();
+  });
   return result;
 }
 
 function updateDerivedReportFields() {
-  if(els.residentsInput) els.residentsInput.value=String(calculateResidentsForReport());
+  const meta = normalizeReportMeta({
+    objectName: els.objectNameInput?.value,
+    floors: els.floorsInput?.value,
+    internalFireRule: els.internalFireRuleSelect?.value,
+    longCorridor: els.longCorridorInput?.checked ? 'true' : 'false',
+    outdoorFireClass: els.outdoorFireClassSelect?.value,
+    buildingVolume: els.buildingVolumeInput?.value,
+    engineerPosition: els.engineerPositionInput?.value,
+    engineerDate: els.engineerDateInput?.value,
+    engineerName: els.engineerNameInput?.value
+  });
+  const derived = calculateDerivedReportMeta(meta);
+  if (els.residentsInput) els.residentsInput.value = derived.residents;
+  if (els.internalFireFlowInput) els.internalFireFlowInput.value = derived.internalFireFlow;
+  if (els.internalFireDescriptionInput) els.internalFireDescriptionInput.value = derived.internalFireDescription;
+  if (els.autoFireFlowInput) els.autoFireFlowInput.value = derived.autoFireFlow;
+  if (els.outdoorFireFlowInput) els.outdoorFireFlowInput.value = derived.outdoorFireFlow;
 }
 
-function calculateDerivedReportMeta() {
-  return {residents:String(calculateResidentsForReport())};
+function calculateDerivedReportMeta(meta) {
+  const internal = calculateInternalFire(meta);
+  return {
+    residents: String(calculateResidentsForReport()),
+    internalFireFlow: internal.flow,
+    internalFireDescription: internal.description,
+    autoFireFlow: '30',
+    outdoorFireFlow: calculateOutdoorFireFlow(meta)
+  };
 }
 
 function calculateResidentsForReport() {
@@ -1731,8 +1958,80 @@ function calculateResidentsForReport() {
 }
 
 function isResidentRow(row) {
-  return Boolean(Calc.catalogOption(row)?.residential);
+  const unit = safe(row.unit).toLowerCase();
+  const typeName = safe(row.consumerTypeName).toLowerCase();
+  const name = safe(row.consumerName).toLowerCase();
+  return unit.includes('жител') || typeName.includes('жилые дома') || name.includes('секция');
 }
+
+function calculateInternalFire(meta) {
+  const floors = Math.floor(toNum(meta.floors));
+  const longCorridor = meta.longCorridor !== 'false';
+  let streams = 0;
+
+  if (floors >= 17 && floors <= 25) streams = 2;
+  else if (floors >= 12 && floors <= 16) streams = longCorridor ? 2 : 1;
+  else if (floors > 25) streams = 2;
+  else streams = 0;
+
+  const flow = streams * 2.6;
+  if (streams <= 0) {
+    return {
+      flow: '0',
+      description: 'для жилого дома по заданной этажности не требуется'
+    };
+  }
+
+  return {
+    flow: formatFixedSmart(flow, 1),
+    description: `${streams} ${streams === 1 ? 'струя' : 'струи'} по 2,6 л/с`
+  };
+}
+
+
+function calculateOutdoorFireFlow(meta) {
+  const floors = Math.floor(toNum(meta.floors));
+  const volume = toNum(meta.buildingVolume);
+  if (floors <= 0 || volume <= 0) return DEFAULT_REPORT_META.outdoorFireFlow;
+
+  const volumeIndex = getOutdoorVolumeIndex(volume);
+  const rowsTable = meta.outdoorFireClass === 'f1f2f3f4'
+    ? OUTDOOR_FIRE_FLOW_TABLE.f1f2f3f4
+    : OUTDOOR_FIRE_FLOW_TABLE.f13f14;
+  const row = rowsTable.find(item => floors >= item.minFloors && floors <= item.maxFloors) || rowsTable[rowsTable.length - 1];
+  const value = row.values[volumeIndex];
+  return value === null || value === undefined ? '—' : String(value).replace('.', ',');
+}
+
+function getOutdoorVolumeIndex(volumeThousandM3) {
+  const value = toNum(volumeThousandM3);
+  if (value <= 1) return 0;
+  if (value <= 5) return 1;
+  if (value <= 25) return 2;
+  if (value <= 50) return 3;
+  if (value <= 150) return 4;
+  if (value <= 300) return 5;
+  if (value <= 800) return 6;
+  return 7;
+}
+
+const OUTDOOR_FIRE_FLOW_TABLE = Object.freeze({
+  f13f14: [
+    { minFloors: 0, maxFloors: 2, values: [10, 10, 15, 20, 25, 30, 35, 40] },
+    { minFloors: 3, maxFloors: 12, values: [10, 15, 15, 20, 25, 30, 35, 40] },
+    { minFloors: 13, maxFloors: 16, values: [null, 20, 20, 25, 30, 35, 40, 45] },
+    { minFloors: 17, maxFloors: 25, values: [null, null, 20, 25, 30, 35, 50, 60] },
+    { minFloors: 26, maxFloors: 999, values: [null, null, 60, 80, 90, 100, 100, 100] }
+  ],
+  f1f2f3f4: [
+    { minFloors: 0, maxFloors: 2, values: [10, 10, 15, 20, 30, 30, 35, 40] },
+    { minFloors: 3, maxFloors: 6, values: [10, 15, 20, 25, 30, 35, 40, 40] },
+    { minFloors: 7, maxFloors: 12, values: [15, 20, 25, 30, 35, 40, 40, 50] },
+    { minFloors: 13, maxFloors: 16, values: [null, null, 30, 30, 35, 50, 50, 60] },
+    { minFloors: 17, maxFloors: 25, values: [null, null, 30, 35, 40, 50, 50, 60] },
+    { minFloors: 26, maxFloors: 999, values: [null, null, 70, 90, 100, 100, 100, 100] }
+  ]
+});
 
 function saveReportMetaToStorage(showMessage) {
   try {
@@ -1747,11 +2046,7 @@ function loadReportMetaFromStorage(returnOnly = false) {
   let meta = DEFAULT_REPORT_META;
   try {
     const raw = localStorage.getItem(REPORT_META_KEY);
-    if (raw) {
-      const stored=JSON.parse(raw);
-      if (stored.schemaVersion !== '2' && !localStorage.getItem(REPORT_META_KEY+'-before-v2')) localStorage.setItem(REPORT_META_KEY+'-before-v2',raw);
-      meta = normalizeReportMeta(stored);
-    }
+    if (raw) meta = normalizeReportMeta(JSON.parse(raw));
   } catch (error) {
     console.error(error);
     meta = DEFAULT_REPORT_META;
@@ -1784,13 +2079,19 @@ function downloadBlob(blob, fileName) {
 }
 
 function toast(message) {
-  document.querySelector('.toast')?.remove();
   const node = document.createElement('div');
   node.textContent = message;
-  node.className = 'toast';
-  node.setAttribute('role', 'status');
+  node.style.position = 'fixed';
+  node.style.right = '18px';
+  node.style.bottom = '18px';
+  node.style.background = '#0b6f8f';
+  node.style.color = 'white';
+  node.style.padding = '10px 14px';
+  node.style.borderRadius = '10px';
+  node.style.boxShadow = '0 8px 24px rgba(0,0,0,.18)';
+  node.style.zIndex = '9999';
   document.body.appendChild(node);
-  setTimeout(() => node.remove(), 4500);
+  setTimeout(() => node.remove(), 1800);
 }
 
 function timestamp() {
@@ -1815,12 +2116,20 @@ function toInt(value, fallback) {
 }
 
 function cleanNumberString(value) {
-  return Calc.canonical(value);
+  const text = String(value || '').replace(',', '.').trim();
+  if (text === '') return '';
+  const number = Number(text);
+  return Number.isFinite(number) ? format(number) : '';
 }
 
 function format(value) {
-  if (value == null || !Number.isFinite(Number(value))) return '—';
-  return Number(value).toLocaleString('ru-RU', {maximumFractionDigits: 3, useGrouping: false});
+  const number = toNum(value);
+  if (Math.abs(number) < 1e-7) return '0';
+  return number.toLocaleString('ru-RU', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+    useGrouping: false
+  });
 }
 
 function valueOrEmpty(value) {
@@ -1845,11 +2154,9 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
-window.addEventListener('beforeunload', event => {
-  if (hasEditorChanges()) { event.preventDefault(); event.returnValue = ''; }
+window.addEventListener('beforeunload', () => {
   if (rows.length) saveRowsToStorage(false);
   else clearAutoSave();
 });
 
 document.addEventListener('DOMContentLoaded', init);
-window.addEventListener('pageshow', () => setTimeout(restoreEditorValues, 0));
